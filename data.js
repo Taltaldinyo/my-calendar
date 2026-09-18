@@ -11,8 +11,17 @@ const supabase = isDemo ? null : createClient(SUPABASE_URL, SUPABASE_KEY);
 
 export class WrongPasswordError extends Error {}
 
-const COLUMNS = 'id,title,date,time';
-const clean = (row) => ({ id: row.id, title: row.title, date: row.date, time: row.time ? row.time.slice(0, 5) : null });
+const COLUMNS = 'id,title,date,time,end_time,series_id';
+const hhmm = (t) => (t ? t.slice(0, 5) : null);
+const clean = (row) => ({
+  id: row.id,
+  title: row.title,
+  date: row.date,
+  time: hhmm(row.time),
+  endTime: hhmm(row.end_time),
+  seriesId: row.series_id ?? null, // set when the event is one occurrence of a weekly event
+});
+const toRow = ({ title, date, time, endTime }) => ({ title, date, time, end_time: endTime ?? null });
 
 export async function hasSession() {
   if (isDemo) return true;
@@ -47,23 +56,48 @@ export async function listEvents(from, to) {
   return data.map(clean);
 }
 
-export async function addEvent({ title, date, time }) {
-  if (isDemo) return demo.add({ title, date, time });
-  const { data, error } = await supabase.from('events').insert({ title, date, time }).select(COLUMNS).single();
+export async function addEvent(fields) {
+  if (isDemo) return (await demo.add([toRow(fields)]))[0];
+  const { data, error } = await supabase.from('events').insert(toRow(fields)).select(COLUMNS).single();
   if (error) throw error;
   return clean(data);
 }
 
-export async function updateEvent(id, { title, date, time }) {
-  if (isDemo) return demo.update(id, { title, date, time });
-  const { data, error } = await supabase.from('events').update({ title, date, time }).eq('id', id).select(COLUMNS).single();
+// A weekly event is stored as one row per occurrence, all sharing one series id.
+export async function addSeries({ dates, ...fields }) {
+  const seriesId = crypto.randomUUID();
+  const rows = dates.map((date) => ({ ...toRow({ ...fields, date }), series_id: seriesId }));
+  if (isDemo) return demo.add(rows);
+  const { data, error } = await supabase.from('events').insert(rows).select(COLUMNS);
+  if (error) throw error;
+  return data.map(clean);
+}
+
+export async function updateEvent(id, fields) {
+  if (isDemo) return (await demo.update((e) => e.id === id, toRow(fields)))[0];
+  const { data, error } = await supabase.from('events').update(toRow(fields)).eq('id', id).select(COLUMNS).single();
   if (error) throw error;
   return clean(data);
+}
+
+// Name and hours change in every occurrence; each keeps its own date.
+export async function updateSeries(seriesId, { title, time, endTime }) {
+  const fields = { title, time, end_time: endTime ?? null };
+  if (isDemo) return demo.update((e) => e.series_id === seriesId, fields);
+  const { data, error } = await supabase.from('events').update(fields).eq('series_id', seriesId).select(COLUMNS);
+  if (error) throw error;
+  return data.map(clean);
 }
 
 export async function deleteEvent(id) {
-  if (isDemo) return demo.remove(id);
+  if (isDemo) return demo.remove((e) => e.id === id);
   const { error } = await supabase.from('events').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteSeries(seriesId) {
+  if (isDemo) return demo.remove((e) => e.series_id === seriesId);
+  const { error } = await supabase.from('events').delete().eq('series_id', seriesId);
   if (error) throw error;
 }
 
@@ -77,13 +111,15 @@ const demo = (() => {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   };
   let nextId = 1;
-  const make = (offset, title, time = null) => ({ id: String(nextId++), title, date: dayFromToday(offset), time });
+  // Rows look like the database: end_time and series_id, cleaned on the way out.
+  const make = (offset, title, time = null, end_time = null, series_id = null) =>
+    ({ id: String(nextId++), title, date: dayFromToday(offset), time, end_time, series_id });
   const events = [
-    make(0, 'הרצאה במימון', '10:00'),
+    make(0, 'הרצאה במימון', '10:00', '12:00'),
     make(0, 'חדר כושר', '18:30'),
     make(2, 'יום הולדת לאמא'),
     make(2, 'ארוחת ערב משפחתית', '20:00'),
-    make(5, 'מבחן בחשבונאות פיננסית', '09:00'),
+    make(5, 'מבחן בחשבונאות פיננסית', '09:00', '12:00'),
     make(-3, 'פגישה עם המנחה', '14:00'),
     make(8, 'סדנת הכנה לבחינה בדיני מסים, כולל חומרי תרגול', '16:00'),
     make(11, 'יום חופש'),
@@ -91,29 +127,29 @@ const demo = (() => {
     make(11, 'תרגול בחשבונאות', '12:00'),
     make(11, 'קפה עם נועם', '17:00'),
     make(11, 'סרט', '21:30'),
+    ...[1, 8, 15, 22].map((offset) => make(offset, 'סמינר', '08:00', '15:00', 'demo-series')),
   ];
   const wait = () => new Promise((resolve) => setTimeout(resolve, 350));
-  const copy = (e) => ({ ...e });
   return {
     async list(from, to) {
       await wait();
-      return events.filter((e) => e.date >= from && e.date <= to).map(copy);
+      return events.filter((e) => e.date >= from && e.date <= to).map(clean);
     },
-    async add(fields) {
+    async add(rows) {
       await wait();
-      const e = { id: String(nextId++), ...fields };
-      events.push(e);
-      return copy(e);
+      const added = rows.map((row) => ({ id: String(nextId++), series_id: null, ...row }));
+      events.push(...added);
+      return added.map(clean);
     },
-    async update(id, fields) {
+    async update(match, fields) {
       await wait();
-      const e = events.find((x) => x.id === id);
-      Object.assign(e, fields);
-      return copy(e);
+      const hit = events.filter(match);
+      hit.forEach((e) => Object.assign(e, fields));
+      return hit.map(clean);
     },
-    async remove(id) {
+    async remove(match) {
       await wait();
-      events.splice(events.findIndex((x) => x.id === id), 1);
+      for (let i = events.length - 1; i >= 0; i--) if (match(events[i])) events.splice(i, 1);
     },
   };
 })();

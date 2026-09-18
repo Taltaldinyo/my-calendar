@@ -55,6 +55,7 @@ const icon = {
   back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
   forward: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>',
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  repeat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></svg>',
 };
 
 const sheet = createSheet();
@@ -126,6 +127,7 @@ function route() {
     applyRoute(next);
     if (next.view === 'month') nameSquare();
   });
+  transition.ready.catch(() => {}); // skipped (e.g. the page isn't being drawn): the screen still switches, just without motion
   transition.finished.finally(() => {
     root.querySelectorAll('.day[style]').forEach((el) => el.style.removeProperty('view-transition-name'));
   });
@@ -241,6 +243,14 @@ function removeFromCache(id) {
       list.splice(i, 1);
       if (!list.length) state.byDate.delete(date);
     }
+  }
+}
+
+function removeSeriesFromCache(seriesId) {
+  for (const [date, list] of state.byDate) {
+    const kept = list.filter((x) => x.seriesId !== seriesId);
+    if (kept.length) state.byDate.set(date, kept);
+    else state.byDate.delete(date);
   }
 }
 
@@ -538,14 +548,17 @@ function renderAgenda(direction = 0) {
         <button class="btn btn-primary" data-action="add">${icon.plus}הוסף</button>
       </div>`;
   } else {
-    agenda.innerHTML = `<ol class="rows">${events.map((ev) => `
+    agenda.innerHTML = `<ol class="rows">${events.map((ev) => {
+      const hours = ev.time ? (ev.endTime ? `${ev.time} עד ${ev.endTime}` : ev.time) : 'כל היום';
+      return `
       <li>
         <button class="row${ev.time ? '' : ' is-allday'}${ev.id === state.highlight ? ' is-new' : ''}" data-action="edit" data-id="${ev.id}"
-          aria-label="עריכת ${escapeHTML(ev.title)}, ${ev.time ?? 'כל היום'}">
-          <span class="when">${ev.time ?? 'כל היום'}</span>
-          <span class="what">${escapeHTML(ev.title)}</span>
+          aria-label="עריכת ${escapeHTML(ev.title)}, ${hours}${ev.seriesId ? ', אירוע קבוע' : ''}">
+          <span class="when">${ev.time ?? 'כל היום'}${ev.endTime ? `<small>${ev.endTime}</small>` : ''}</span>
+          <span class="what">${escapeHTML(ev.title)}${ev.seriesId ? `<span class="repeat">${icon.repeat}</span>` : ''}</span>
         </button>
-      </li>`).join('')}</ol>`;
+      </li>`;
+    }).join('')}</ol>`;
   }
 
   root.querySelector('.banner').hidden = !state.loadError;
@@ -565,7 +578,7 @@ function animate(el, direction) {
   replay(el, direction > 0 ? 'enter-next' : 'enter-prev');
 }
 
-// ---------- event sheet: add (and later edit) an event
+// ---------- event sheet: add or edit an event, one-off or weekly
 
 function createSheet() {
   const el = document.createElement('dialog');
@@ -578,22 +591,38 @@ function createSheet() {
         <h2 class="display sheet-title" id="sheet-title" tabindex="-1">אירוע חדש</h2>
         <button type="button" class="link-btn is-danger" data-delete>מחק</button>
       </div>
+      <p class="series-note" data-series-note hidden>${icon.repeat}חלק מאירוע קבוע</p>
       <div class="field">
         <label for="ev-title">שם</label>
         <input class="input" id="ev-title" name="title" maxlength="200" autocomplete="off" enterkeyhint="done" aria-describedby="ev-title-error">
         <p class="field-error" id="ev-title-error"></p>
       </div>
-      <div class="field-row">
-        <div class="field">
-          <label for="ev-date">תאריך</label>
-          <div class="picker"><span class="picker-value" data-show="date"></span><input id="ev-date" name="date" type="date" required></div>
+      <div class="field">
+        <label for="ev-date">תאריך</label>
+        <div class="picker"><span class="picker-value" data-show="date"></span><input id="ev-date" type="date" required></div>
+      </div>
+      <div class="field">
+        <div class="label-row">
+          <label for="ev-time">שעה (לא חובה)</label>
+          <button type="button" class="link-btn" data-clear-time>בלי שעה</button>
         </div>
-        <div class="field">
-          <div class="label-row">
-            <label for="ev-time">שעה (לא חובה)</label>
-            <button type="button" class="link-btn" data-clear-time>בלי שעה</button>
+        <div class="time-row">
+          <div class="picker"><span class="picker-value" data-show="time"></span><input id="ev-time" type="time"></div>
+          <div class="picker" data-end-field><span class="picker-value" data-show="end"></span><input id="ev-end" type="time" aria-label="עד שעה (לא חובה)"></div>
+        </div>
+      </div>
+      <div class="field" data-repeat-field>
+        <label class="switch">
+          <input type="checkbox" id="ev-repeat">
+          <span class="switch-track" aria-hidden="true"></span>
+          חוזר כל שבוע
+        </label>
+        <div class="recur" data-recur>
+          <div class="weekday-picks" role="group" aria-label="באילו ימים">
+            ${DAY_LETTERS.map((letter, i) => `<button type="button" class="wd" data-wd="${i}" aria-pressed="false" aria-label="יום ${DAY_NAMES[i]}">${letter}</button>`).join('')}
           </div>
-          <div class="picker"><span class="picker-value" data-show="time"></span><input id="ev-time" name="time" type="time"></div>
+          <label for="ev-until">עד תאריך</label>
+          <div class="picker"><span class="picker-value" data-show="until"></span><input id="ev-until" type="date"></div>
         </div>
       </div>
       <p class="form-error" role="alert"></p>
@@ -601,122 +630,234 @@ function createSheet() {
         <button type="submit" class="btn btn-primary" data-save>שמור</button>
         <button type="button" class="btn btn-ghost" data-cancel>ביטול</button>
       </div>
-      <div class="confirm" data-confirm hidden>
-        <p>למחוק את האירוע?</p>
-        <div class="sheet-actions">
-          <button type="button" class="btn btn-danger" data-confirm-delete>מחק</button>
-          <button type="button" class="btn btn-ghost" data-keep>ביטול</button>
-        </div>
+      <div class="confirm" data-choice hidden>
+        <p data-choice-text></p>
+        <div class="choice-buttons" data-choice-buttons></div>
       </div>
     </form>`;
   document.body.append(el);
 
-  const form = el.querySelector('form');
-  const titleInput = el.querySelector('#ev-title');
-  const dateInput = el.querySelector('#ev-date');
-  const timeInput = el.querySelector('#ev-time');
-  const titleError = el.querySelector('#ev-title-error');
-  const formError = el.querySelector('.form-error');
-  const saveButton = el.querySelector('[data-save]');
-  const clearTime = el.querySelector('[data-clear-time]');
-  const deleteButton = el.querySelector('[data-delete]');
-  const mainActions = el.querySelector('[data-main-actions]');
-  const confirmBox = el.querySelector('[data-confirm]');
-  const confirmButton = el.querySelector('[data-confirm-delete]');
+  const $ = (selector) => el.querySelector(selector);
+  const form = $('form');
+  const inputs = { title: $('#ev-title'), date: $('#ev-date'), time: $('#ev-time'), end: $('#ev-end'), repeat: $('#ev-repeat'), until: $('#ev-until') };
+  const titleError = $('#ev-title-error');
+  const formError = $('.form-error');
+  const saveButton = $('[data-save]');
+  const deleteButton = $('[data-delete]');
+  const mainActions = $('[data-main-actions]');
+  const choiceBox = $('[data-choice]');
+  const choiceButtons = $('[data-choice-buttons]');
+  const picks = [...el.querySelectorAll('[data-wd]')];
   let editing = null;
   let closing = false;
+  let settleChoice = null;
 
-  const askToDelete = (asking) => {
-    confirmBox.hidden = !asking;
-    mainActions.hidden = asking;
-    formError.textContent = '';
-    if (asking) el.querySelector('[data-keep]').focus();
+  const pickedDays = () => picks.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => Number(b.dataset.wd));
+  const setPick = (button, on) => button.setAttribute('aria-pressed', String(on));
+
+  // Dates and times are shown in Israeli format by us; the phone's own picker opens on tap.
+  const show = (key, text, placeholder) => {
+    const span = $(`[data-show="${key}"]`);
+    span.textContent = text || placeholder;
+    span.classList.toggle('is-placeholder', !text);
   };
-
-  deleteButton.addEventListener('click', () => askToDelete(true));
-  el.querySelector('[data-keep]').addEventListener('click', () => { askToDelete(false); deleteButton.focus(); });
-  confirmButton.addEventListener('click', async () => {
-    confirmButton.disabled = true;
-    confirmButton.textContent = 'מוחק…';
-    const { id } = editing;
-    try {
-      await data.deleteEvent(id);
-      removeFromCache(id);
-      close();
-      showToast('האירוע נמחק');
-      showDeleted(id);
-    } catch (err) {
-      if (data.isAuthError(err)) {
-        close();
-        renderLogin();
-        return;
-      }
-      formError.textContent = 'המחיקה נכשלה, נסה שוב';
-    } finally {
-      confirmButton.disabled = false;
-      confirmButton.textContent = 'מחק';
-    }
-  });
-
-  // Date and time are shown in Israeli format by us; the phone's own picker opens on tap.
   const sync = () => {
-    el.querySelector('[data-show="date"]').textContent = dateInput.value ? formatLong(dateInput.value) : 'בחר תאריך';
-    const shownTime = el.querySelector('[data-show="time"]');
-    shownTime.textContent = timeInput.value || 'כל היום';
-    shownTime.classList.toggle('is-placeholder', !timeInput.value);
-    clearTime.hidden = !timeInput.value;
+    if (!inputs.time.value) inputs.end.value = ''; // an end time only makes sense after a start time
+    show('date', inputs.date.value && formatLong(inputs.date.value), 'בחר תאריך');
+    show('time', inputs.time.value, 'כל היום');
+    show('end', inputs.end.value && `עד ${inputs.end.value}`, 'עד שעה');
+    show('until', inputs.until.value && formatLong(inputs.until.value), 'בחר תאריך');
+    $('[data-end-field]').hidden = !inputs.time.value;
+    $('[data-clear-time]').hidden = !inputs.time.value;
+    $('[data-recur]').hidden = !inputs.repeat.checked;
   };
   const setTitleError = (message) => {
     titleError.textContent = message;
-    titleInput.classList.toggle('is-invalid', Boolean(message));
-    titleInput.setAttribute('aria-invalid', message ? 'true' : 'false');
+    inputs.title.classList.toggle('is-invalid', Boolean(message));
+    inputs.title.setAttribute('aria-invalid', message ? 'true' : 'false');
+  };
+  const fail = (message) => {
+    formError.textContent = message;
+    return null;
   };
   const setBusy = (busy) => {
     saveButton.disabled = busy;
     saveButton.textContent = busy ? 'שומר…' : 'שמור';
+    choiceButtons.querySelectorAll('button').forEach((b) => { b.disabled = busy; });
   };
 
-  for (const input of [dateInput, timeInput]) {
+  for (const input of [inputs.date, inputs.time, inputs.end, inputs.until]) {
     input.addEventListener('input', sync);
     input.addEventListener('change', sync);
     input.addEventListener('click', () => { try { input.showPicker?.(); } catch { /* the browser opens its own */ } });
   }
-  clearTime.addEventListener('click', () => { timeInput.value = ''; sync(); timeInput.focus(); });
-  titleInput.addEventListener('input', () => setTitleError(''));
-  el.querySelector('[data-cancel]').addEventListener('click', close);
+  $('[data-clear-time]').addEventListener('click', () => { inputs.time.value = ''; sync(); inputs.time.focus(); });
+  inputs.repeat.addEventListener('change', () => {
+    if (inputs.repeat.checked && !pickedDays().length && inputs.date.value) setPick(picks[fromISO(inputs.date.value).getDay()], true);
+    sync();
+  });
+  picks.forEach((b) => b.addEventListener('click', () => setPick(b, b.getAttribute('aria-pressed') !== 'true')));
+  inputs.title.addEventListener('input', () => setTitleError(''));
+  $('[data-cancel]').addEventListener('click', close);
   el.addEventListener('cancel', (e) => { e.preventDefault(); close(); }); // Esc
   el.addEventListener('click', (e) => { if (e.target === el) close(); }); // tap outside the sheet
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const title = titleInput.value.trim();
-    if (!title) {
-      setTitleError('חסר שם לאירוע');
-      titleInput.focus();
-      return;
-    }
-    if (!dateInput.value) {
-      formError.textContent = 'חסר תאריך';
-      return;
-    }
+  // A question inside the sheet, in place of the save/cancel buttons. Resolves with the value
+  // of the chosen button, or null for cancel.
+  function ask(text, options) {
+    $('[data-choice-text]').textContent = text;
+    choiceButtons.innerHTML = options.map((o, i) => `<button type="button" class="btn btn-${o.kind}" data-i="${i}">${o.label}</button>`).join('');
+    choiceButtons.classList.toggle('is-stacked', options.length > 2);
     formError.textContent = '';
+    mainActions.hidden = true;
+    choiceBox.hidden = false;
+    choiceButtons.querySelector('.btn-ghost')?.focus();
+    return new Promise((resolve) => {
+      settleChoice = resolve;
+      choiceButtons.onclick = (e) => {
+        const button = e.target.closest('[data-i]');
+        if (!button) return;
+        const { value } = options[button.dataset.i];
+        settleChoice = null;
+        if (value === null) hideChoice();
+        resolve(value);
+      };
+    });
+  }
+  function hideChoice() {
+    choiceBox.hidden = true;
+    mainActions.hidden = false;
+    settleChoice?.(null);
+    settleChoice = null;
+  }
+
+  // Runs a save or delete; on failure what was typed stays, with a message.
+  async function perform(task, failMessage) {
     setBusy(true);
-    const fields = { title, date: dateInput.value, time: timeInput.value || null };
     try {
-      const saved = editing ? await data.updateEvent(editing.id, fields) : await data.addEvent(fields);
-      placeEvent(saved);
-      close();
-      showToast('האירוע נשמר');
-      showSaved(saved);
+      await task();
     } catch (err) {
-      setBusy(false);
       if (data.isAuthError(err)) {
         close();
         renderLogin();
         return;
       }
-      formError.textContent = 'השמירה נכשלה, נסה שוב'; // what was typed stays in the form
+      hideChoice();
+      setBusy(false);
+      fail(failMessage);
     }
+  }
+
+  function readFields() {
+    formError.textContent = '';
+    const title = inputs.title.value.trim();
+    if (!title) {
+      setTitleError('חסר שם לאירוע');
+      inputs.title.focus();
+      return null;
+    }
+    if (!inputs.date.value) return fail('חסר תאריך');
+    const time = inputs.time.value || null;
+    const endTime = time && inputs.end.value ? inputs.end.value : null;
+    if (endTime && endTime <= time) return fail('שעת הסיום לפני שעת ההתחלה');
+    return { title, date: inputs.date.value, time, endTime };
+  }
+
+  // Every chosen weekday from the first date up to "until", at most a year ahead.
+  function readRepeatDates(date) {
+    const days = pickedDays();
+    if (!days.length) return fail('בחר לפחות יום אחד בשבוע');
+    const until = inputs.until.value;
+    if (!until) return fail('חסר תאריך סיום לאירוע הקבוע');
+    if (until < date) return fail('תאריך הסיום לפני תאריך ההתחלה');
+    const limit = fromISO(date);
+    limit.setFullYear(limit.getFullYear() + 1);
+    if (until > toISO(limit)) return fail('אירוע קבוע יכול לחזור עד שנה קדימה');
+    const dates = [];
+    for (let d = date; d <= until; d = addDays(d, 1)) if (days.includes(fromISO(d).getDay())) dates.push(d);
+    if (!dates.length) return fail('אין אף יום מהימים שבחרת בטווח הזה');
+    return dates;
+  }
+
+  const finish = (toastText, ev) => {
+    close();
+    showToast(toastText);
+    showSaved(ev);
+  };
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fields = readFields();
+    if (!fields) return;
+
+    if (!editing && inputs.repeat.checked) {
+      const dates = readRepeatDates(fields.date);
+      if (!dates) return;
+      perform(async () => {
+        const saved = await data.addSeries({ ...fields, dates });
+        saved.forEach(placeEvent);
+        finish(`האירוע הקבוע נשמר, ${saved.length} פעמים`, saved[0]);
+      }, 'השמירה נכשלה, נסה שוב');
+      return;
+    }
+    if (!editing) {
+      perform(async () => {
+        const saved = await data.addEvent(fields);
+        placeEvent(saved);
+        finish('האירוע נשמר', saved);
+      }, 'השמירה נכשלה, נסה שוב');
+      return;
+    }
+
+    const scope = editing.seriesId
+      ? await ask('לשנות רק את האירוע הזה, או את כל הסדרה?', [
+        { label: 'רק האירוע הזה', value: 'one', kind: 'primary' },
+        { label: 'כל הסדרה', value: 'all', kind: 'primary' },
+        { label: 'ביטול', value: null, kind: 'ghost' },
+      ])
+      : 'one';
+    if (!scope) return;
+    const { id, seriesId, date: oldDate } = editing;
+    perform(async () => {
+      let saved;
+      if (scope === 'all') {
+        (await data.updateSeries(seriesId, fields)).forEach(placeEvent); // name and hours, everywhere
+        saved = findEvent(id);
+      }
+      if (scope === 'one' || fields.date !== oldDate) saved = await data.updateEvent(id, fields);
+      placeEvent(saved);
+      finish(scope === 'all' ? 'הסדרה עודכנה' : 'האירוע נשמר', saved);
+    }, 'השמירה נכשלה, נסה שוב');
+  });
+
+  deleteButton.addEventListener('click', async () => {
+    const { id, seriesId } = editing;
+    const scope = await ask('למחוק את האירוע?', seriesId
+      ? [
+        { label: 'רק האירוע הזה', value: 'one', kind: 'danger' },
+        { label: 'כל הסדרה', value: 'all', kind: 'danger' },
+        { label: 'ביטול', value: null, kind: 'ghost' },
+      ]
+      : [
+        { label: 'מחק', value: 'one', kind: 'danger' },
+        { label: 'ביטול', value: null, kind: 'ghost' },
+      ]);
+    if (!scope) {
+      deleteButton.focus();
+      return;
+    }
+    perform(async () => {
+      if (scope === 'all') {
+        await data.deleteSeries(seriesId);
+        removeSeriesFromCache(seriesId);
+      } else {
+        await data.deleteEvent(id);
+        removeFromCache(id);
+      }
+      close();
+      showToast(scope === 'all' ? 'הסדרה נמחקה' : 'האירוע נמחק');
+      showDeleted(id);
+    }, 'המחיקה נכשלה, נסה שוב');
   });
 
   // On phones the keyboard covers the bottom of the screen; lift the sheet above it.
@@ -733,13 +874,21 @@ function createSheet() {
 
   function open({ date, event = null }) {
     editing = event;
-    el.querySelector('#sheet-title').textContent = event ? 'עריכת אירוע' : 'אירוע חדש';
-    titleInput.value = event?.title ?? '';
-    dateInput.value = event?.date ?? date;
-    timeInput.value = event?.time ?? '';
-    setTitleError('');
-    askToDelete(false);
+    $('#sheet-title').textContent = event ? 'עריכת אירוע' : 'אירוע חדש';
+    inputs.title.value = event?.title ?? '';
+    inputs.date.value = event?.date ?? date;
+    inputs.time.value = event?.time ?? '';
+    inputs.end.value = event?.endTime ?? '';
+    inputs.repeat.checked = false;
+    inputs.until.value = '';
+    picks.forEach((b) => setPick(b, false));
+    // A weekly event is set up when it's created; later only its name and hours change.
+    $('[data-repeat-field]').hidden = Boolean(event);
+    $('[data-series-note]').hidden = !event?.seriesId;
     deleteButton.hidden = !event;
+    setTitleError('');
+    formError.textContent = '';
+    hideChoice();
     setBusy(false);
     sync();
     closing = false;
@@ -747,13 +896,14 @@ function createSheet() {
     el.showModal();
     trackKeyboard(true);
     // A new event starts with typing; an existing one may just be deleted, so don't pop the keyboard.
-    if (event) el.querySelector('#sheet-title').focus();
-    else titleInput.focus();
+    if (event) $('#sheet-title').focus();
+    else inputs.title.focus();
   }
 
   function close() {
     if (!el.open || closing) return;
     closing = true;
+    hideChoice();
     el.classList.add('is-closing');
     const onEnd = (e) => { if (e.target === el) done(); };
     const done = () => {
