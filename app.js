@@ -19,6 +19,7 @@ const state = {
   loadError: false,
   openedFromMonth: false, // the day view sits on top of the month in history
   highlight: null, // id of an event that was just saved, animated once where it lands
+  pushReady: false, // this phone is set up to receive reminders
   started: false,
 };
 let loadToken = 0;
@@ -55,6 +56,7 @@ const icon = {
   back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
   forward: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>',
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
   repeat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></svg>',
 };
 
@@ -79,6 +81,7 @@ function showToast(text) {
 start();
 
 async function start() {
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   data.onSignedOut(renderLogin);
   if (await data.hasSession()) enterApp();
   else renderLogin();
@@ -87,6 +90,7 @@ async function start() {
 function enterApp() {
   if (!state.started) {
     state.started = true;
+    syncPush().catch(() => {}).finally(renderPushCard);
     window.addEventListener('hashchange', route);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && root.querySelector('.shell')) load({ quiet: true });
@@ -293,6 +297,11 @@ root.addEventListener('click', (e) => {
   else if (action === 'today') goToday();
   else if (action === 'retry') load();
   else if (action === 'add') sheet.open({ date: defaultDate() });
+  else if (action === 'enable-push') enablePush(target);
+  else if (action === 'dismiss-push') {
+    try { localStorage.setItem('reminders-card-dismissed', '1'); } catch { /* private mode: the card just comes back */ }
+    renderPushCard();
+  }
   else if (action === 'edit') {
     const ev = findEvent(target.dataset.id);
     if (ev) sheet.open({ event: ev });
@@ -395,6 +404,7 @@ function renderMonth(direction, returningTo) {
           </div>
         </header>
         ${bannerHTML}
+        <div class="push-card" hidden></div>
         <section class="month-card view-enter">
           <div class="weekdays" aria-hidden="true">${DAY_LETTERS.map((l) => `<span>${l}</span>`).join('')}</div>
           <div class="grid"></div>
@@ -402,6 +412,7 @@ function renderMonth(direction, returningTo) {
         ${dockHTML}
       </div>`;
     enableSwipe(root.querySelector('.month-card'));
+    renderPushCard();
   }
   const title = root.querySelector('.month-title');
   title.innerHTML = `${MONTHS[state.month]} <span class="year">${state.year}</span>`;
@@ -518,10 +529,12 @@ function renderDay(direction) {
           <p class="day-date"></p>
         </div>
         ${bannerHTML}
+        <div class="push-card" hidden></div>
         <section class="agenda-card view-enter" aria-label="האירועים של היום"><div class="agenda"></div></section>
         ${dockHTML}
       </div>`;
     root.querySelector('.day-title').focus({ preventScroll: true });
+    renderPushCard();
   }
   const isToday = state.date === todayISO();
   root.querySelector('.back-label').textContent = MONTHS[state.month];
@@ -555,7 +568,7 @@ function renderAgenda(direction = 0) {
         <button class="row${ev.time ? '' : ' is-allday'}${ev.id === state.highlight ? ' is-new' : ''}" data-action="edit" data-id="${ev.id}"
           aria-label="עריכת ${escapeHTML(ev.title)}, ${hours}${ev.seriesId ? ', אירוע קבוע' : ''}">
           <span class="when">${ev.time ?? 'כל היום'}${ev.endTime ? `<small>${ev.endTime}</small>` : ''}</span>
-          <span class="what">${escapeHTML(ev.title)}${ev.seriesId ? `<span class="repeat">${icon.repeat}</span>` : ''}</span>
+          <span class="what">${escapeHTML(ev.title)}${ev.seriesId ? `<span class="repeat">${icon.repeat}</span>` : ''}${ev.remindMinutes ? `<span class="repeat">${icon.bell}</span>` : ''}</span>
         </button>
       </li>`;
     }).join('')}</ol>`;
@@ -576,6 +589,75 @@ function animate(el, direction) {
   if (!direction) return;
   el.classList.remove('enter-next', 'enter-prev');
   replay(el, direction > 0 ? 'enter-next' : 'enter-prev');
+}
+
+// ---------- reminders on this phone
+
+const isPhone = () => matchMedia('(pointer: coarse)').matches;
+const isHomeScreenApp = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const canPush = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+function base64UrlToBytes(text) {
+  const base64 = (text + '='.repeat((4 - (text.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+}
+
+// Once allowed, make sure the server knows where to send this phone's reminders.
+async function syncPush() {
+  if (data.isDemo || !canPush() || Notification.permission !== 'granted') return;
+  const registration = await navigator.serviceWorker.ready;
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: base64UrlToBytes(await data.pushPublicKey()),
+    });
+  }
+  await data.savePushSubscription(subscription);
+  state.pushReady = true;
+}
+
+async function enablePush(button) {
+  button.disabled = true;
+  try {
+    const permission = await Notification.requestPermission(); // must be the first thing after the tap
+    if (permission === 'granted') {
+      await syncPush();
+      await data.sendTestPush();
+      showToast('התזכורות הופעלו');
+    }
+  } catch {
+    showToast('לא הצלחנו להפעיל תזכורות. נסה שוב');
+  }
+  renderPushCard();
+}
+
+// A quiet card at the top of the screen, only on the phone, until reminders are on.
+function renderPushCard() {
+  const card = root.querySelector('.push-card');
+  if (!card) return;
+  let dismissed = false;
+  try { dismissed = localStorage.getItem('reminders-card-dismissed') === '1'; } catch { /* no storage: show it */ }
+  let message = null;
+  let action = '';
+  if (data.isDemo || !isPhone() || dismissed || state.pushReady) message = null;
+  else if (!canPush()) {
+    if (!isHomeScreenApp()) message = 'כדי לקבל תזכורות, פתח את לוח השנה מהאייקון במסך הבית.';
+  } else if (Notification.permission === 'denied') {
+    message = 'התזכורות חסומות. אפשר להפעיל אותן בהגדרות של הטלפון, תחת התראות ← לוח השנה.';
+  } else if (Notification.permission !== 'granted') {
+    message = 'תזכורת יומית ב-07:00, ותזכורות לאירועים שתבחר.';
+    action = '<button class="btn btn-primary btn-small" data-action="enable-push">הפעל</button>';
+  }
+  card.hidden = !message;
+  if (!message) return;
+  card.innerHTML = `
+    <span class="push-icon">${icon.bell}</span>
+    <p><strong>תזכורות בטלפון</strong>${message}</p>
+    ${action}
+    <button class="card-close" data-action="dismiss-push" aria-label="לא עכשיו">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>`;
 }
 
 // ---------- event sheet: add or edit an event, one-off or weekly
@@ -611,6 +693,21 @@ function createSheet() {
           <div class="picker" data-end-field><span class="picker-value" data-show="end"></span><input id="ev-end" type="time" aria-label="עד שעה (לא חובה)"></div>
         </div>
       </div>
+      <div class="field" data-remind-field>
+        <label for="ev-remind">תזכורת בטלפון</label>
+        <div class="picker picker-select">
+          <select id="ev-remind">
+            <option value="">בלי תזכורת</option>
+            <option value="5">5 דקות לפני</option>
+            <option value="10">10 דקות לפני</option>
+            <option value="15">15 דקות לפני</option>
+            <option value="30">30 דקות לפני</option>
+            <option value="60">שעה לפני</option>
+            <option value="120">שעתיים לפני</option>
+            <option value="1440">יום לפני</option>
+          </select>
+        </div>
+      </div>
       <div class="field" data-repeat-field>
         <label class="switch">
           <input type="checkbox" id="ev-repeat">
@@ -639,7 +736,7 @@ function createSheet() {
 
   const $ = (selector) => el.querySelector(selector);
   const form = $('form');
-  const inputs = { title: $('#ev-title'), date: $('#ev-date'), time: $('#ev-time'), end: $('#ev-end'), repeat: $('#ev-repeat'), until: $('#ev-until') };
+  const inputs = { title: $('#ev-title'), date: $('#ev-date'), time: $('#ev-time'), end: $('#ev-end'), repeat: $('#ev-repeat'), until: $('#ev-until'), remind: $('#ev-remind') };
   const titleError = $('#ev-title-error');
   const formError = $('.form-error');
   const saveButton = $('[data-save]');
@@ -670,6 +767,8 @@ function createSheet() {
     $('[data-end-field]').hidden = !inputs.time.value;
     $('[data-clear-time]').hidden = !inputs.time.value;
     $('[data-recur]').hidden = !inputs.repeat.checked;
+    if (!inputs.time.value) inputs.remind.value = ''; // all-day events have no reminder
+    $('[data-remind-field]').hidden = !inputs.time.value;
   };
   const setTitleError = (message) => {
     titleError.textContent = message;
@@ -760,7 +859,8 @@ function createSheet() {
     const time = inputs.time.value || null;
     const endTime = time && inputs.end.value ? inputs.end.value : null;
     if (endTime && endTime <= time) return fail('שעת הסיום לפני שעת ההתחלה');
-    return { title, date: inputs.date.value, time, endTime };
+    const remindMinutes = time && inputs.remind.value ? Number(inputs.remind.value) : null;
+    return { title, date: inputs.date.value, time, endTime, remindMinutes };
   }
 
   // Every chosen weekday from the first date up to "until", at most a year ahead.
@@ -879,6 +979,7 @@ function createSheet() {
     inputs.date.value = event?.date ?? date;
     inputs.time.value = event?.time ?? '';
     inputs.end.value = event?.endTime ?? '';
+    inputs.remind.value = event?.remindMinutes ? String(event.remindMinutes) : '';
     inputs.repeat.checked = false;
     inputs.until.value = '';
     picks.forEach((b) => setPick(b, false));

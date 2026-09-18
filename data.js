@@ -11,7 +11,7 @@ const supabase = isDemo ? null : createClient(SUPABASE_URL, SUPABASE_KEY);
 
 export class WrongPasswordError extends Error {}
 
-const COLUMNS = 'id,title,date,time,end_time,series_id';
+const COLUMNS = 'id,title,date,time,end_time,series_id,remind_minutes';
 const hhmm = (t) => (t ? t.slice(0, 5) : null);
 const clean = (row) => ({
   id: row.id,
@@ -20,8 +20,10 @@ const clean = (row) => ({
   time: hhmm(row.time),
   endTime: hhmm(row.end_time),
   seriesId: row.series_id ?? null, // set when the event is one occurrence of a weekly event
+  remindMinutes: row.remind_minutes ?? null, // reminder on the phone, this many minutes before
 });
-const toRow = ({ title, date, time, endTime }) => ({ title, date, time, end_time: endTime ?? null });
+const toRow = ({ title, date, time, endTime, remindMinutes }) =>
+  ({ title, date, time, end_time: endTime ?? null, remind_minutes: remindMinutes ?? null });
 
 export async function hasSession() {
   if (isDemo) return true;
@@ -81,8 +83,8 @@ export async function updateEvent(id, fields) {
 }
 
 // Name and hours change in every occurrence; each keeps its own date.
-export async function updateSeries(seriesId, { title, time, endTime }) {
-  const fields = { title, time, end_time: endTime ?? null };
+export async function updateSeries(seriesId, { title, time, endTime, remindMinutes }) {
+  const fields = { title, time, end_time: endTime ?? null, remind_minutes: remindMinutes ?? null };
   if (isDemo) return demo.update((e) => e.series_id === seriesId, fields);
   const { data, error } = await supabase.from('events').update(fields).eq('series_id', seriesId).select(COLUMNS);
   if (error) throw error;
@@ -99,6 +101,27 @@ export async function deleteSeries(seriesId) {
   if (isDemo) return demo.remove((e) => e.series_id === seriesId);
   const { error } = await supabase.from('events').delete().eq('series_id', seriesId);
   if (error) throw error;
+}
+
+// ---------- reminders on the phone (sent by the "reminders" function in Supabase)
+
+export async function pushPublicKey() {
+  const { data, error } = await supabase.functions.invoke('reminders', { method: 'GET' });
+  if (error) throw error;
+  return data.publicKey;
+}
+
+export async function savePushSubscription(subscription) {
+  const { endpoint, keys } = subscription.toJSON();
+  const { error } = await supabase.from('push_subscriptions')
+    .upsert({ endpoint, p256dh: keys.p256dh, auth: keys.auth }, { onConflict: 'endpoint' });
+  if (error) throw error;
+}
+
+export async function sendTestPush() {
+  const { data, error } = await supabase.functions.invoke('reminders', { body: { action: 'test' } });
+  if (error) throw error;
+  return data.sent;
 }
 
 // ---------- demo store

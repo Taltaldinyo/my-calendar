@@ -844,6 +844,93 @@ button.row:focus-visible { outline-offset: -2px; }
 .wd:active { transform: scale(.92); }
 .wd[aria-pressed="true"] { border-color: var(--teal); background: var(--teal); color: var(--paper); }
 
+/* ---------- reminder picker in the sheet */
+
+.picker-select select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0 16px 0 40px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 17px;
+  appearance: none;
+  cursor: pointer;
+}
+
+.picker-select select:focus { outline: none; }
+
+.picker-select::after {
+  content: '';
+  position: absolute;
+  inset-inline-end: 18px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -6px;
+  border-bottom: 2px solid var(--ink-2);
+  border-inline-start: 2px solid var(--ink-2);
+  transform: rotate(-45deg);
+  pointer-events: none;
+}
+
+/* ---------- "reminders on your phone" card */
+
+.push-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px 12px 12px 8px;
+  border: 1px solid rgb(11 111 107 / .18);
+  border-radius: var(--radius);
+  background: var(--teal-soft);
+  animation: rise .4s var(--ease-out);
+}
+
+.push-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--teal);
+  color: var(--paper);
+}
+
+.push-icon svg, .card-close svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.push-card p { flex: 1; margin: 0; color: var(--teal-strong); font-size: 14px; line-height: 1.4; }
+.push-card strong { display: block; color: var(--ink); font-size: 15px; }
+.btn-small { flex: none; height: 38px; padding: 0 16px; font-size: 15px; }
+
+.card-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
 /* ---------- questions inside the sheet ("just this one, or the whole series?") */
 
 .choice-buttons { display: flex; gap: 10px; }
