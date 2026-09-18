@@ -1,4 +1,4 @@
-import * as data from './data.js';
+import * as data from './data.js?v=6';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -37,10 +37,9 @@ const addDays = (iso, n) => { const d = fromISO(iso); d.setDate(d.getDate() + n)
 
 function monthCells(year, month) {
   const first = new Date(year, month, 1);
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const weeks = Math.ceil((first.getDay() + daysInMonth) / 7);
   const cells = [];
-  for (let i = 0; i < weeks * 7; i++) {
+  // Always six weeks, so the month keeps the same height and turning a page doesn't jump.
+  for (let i = 0; i < 42; i++) {
     const d = new Date(year, month, 1 - first.getDay() + i); // weeks start on Sunday
     cells.push({ iso: toISO(d), day: d.getDate(), weekday: d.getDay(), month: d.getMonth(), inMonth: d.getMonth() === month });
   }
@@ -81,6 +80,8 @@ function showToast(text) {
 start();
 
 async function start() {
+  // Safari on the iPhone only shows the pressed look of buttons when a touch listener exists.
+  document.addEventListener('touchstart', () => {}, { passive: true });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   data.onSignedOut(renderLogin);
   if (await data.hasSession()) enterApp();
@@ -206,9 +207,11 @@ const rangeSignature = (from, to) => JSON.stringify([...state.byDate].filter(([d
 async function load({ quiet = false } = {}) {
   const token = ++loadToken;
   const isDay = state.view === 'day';
+  const day = state.date; // what this load asked for, even if the screen moves on meanwhile
+  const month = monthKey(state.year, state.month);
   const cells = monthCells(state.year, state.month);
-  const [from, to] = isDay ? [state.date, state.date] : [cells[0].iso, cells[cells.length - 1].iso];
-  const known = isDay ? isKnown(state.date) : state.loaded.has(monthKey(state.year, state.month));
+  const [from, to] = isDay ? [day, day] : [cells[0].iso, cells[cells.length - 1].iso];
+  const known = isDay ? isKnown(day) : state.loaded.has(month);
   const before = rangeSignature(from, to);
   const hadError = state.loadError;
 
@@ -218,8 +221,8 @@ async function load({ quiet = false } = {}) {
   }
   try {
     await fetchRange(from, to);
-    if (isDay) state.loadedDays.add(state.date);
-    else state.loaded.add(monthKey(state.year, state.month));
+    if (isDay) state.loadedDays.add(day);
+    else state.loaded.add(month);
     if (token !== loadToken) return;
     state.loadError = false;
   } catch (error) {
@@ -230,6 +233,23 @@ async function load({ quiet = false } = {}) {
   const changed = state.loading || state.loadError !== hadError || rangeSignature(from, to) !== before;
   state.loading = false;
   if (changed) renderContent(); // nothing new: keep the screen as is, so nothing flickers
+  if (!isDay && !state.loadError) prefetchAround();
+}
+
+// Fetch the months on either side quietly, so the next page turn shows its events at once.
+const prefetching = new Set();
+function prefetchAround() {
+  for (const delta of [-1, 1]) {
+    const d = new Date(state.year, state.month + delta, 1);
+    const key = monthKey(d.getFullYear(), d.getMonth());
+    if (state.loaded.has(key) || prefetching.has(key)) continue;
+    prefetching.add(key);
+    const cells = monthCells(d.getFullYear(), d.getMonth());
+    fetchRange(cells[0].iso, cells[cells.length - 1].iso)
+      .then(() => state.loaded.add(key))
+      .catch(() => {}) // not needed yet; the month loads normally when opened
+      .finally(() => prefetching.delete(key));
+  }
 }
 
 function findEvent(id) {
@@ -485,10 +505,14 @@ function turnPage(grid, direction, paint) {
     ghost.classList.add('lie-under');
     replay(grid, 'turn-back');
   }
-  moving.addEventListener('animationend', () => {
+  // Only the page's own turn counts; a dot or a skeleton animating inside it must not end it early.
+  const onEnd = (e) => {
+    if (e.target !== moving) return;
+    moving.removeEventListener('animationend', onEnd);
     ghost.remove();
     grid.classList.remove('turn-back');
-  }, { once: true });
+  };
+  moving.addEventListener('animationend', onEnd);
 }
 
 // On the phone, swiping the month turns the page too. Right to left: a swipe to the right

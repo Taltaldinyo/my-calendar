@@ -33,7 +33,6 @@ body {
   background:
     radial-gradient(900px 520px at 100% -8%, rgb(11 111 107 / .07), transparent 62%),
     var(--cream);
-  background-attachment: fixed;
   color: var(--ink);
   font: 400 16px/1.5 var(--font-ui);
   -webkit-font-smoothing: antialiased;
@@ -50,6 +49,7 @@ button { font: inherit; color: inherit; }
 
 .sr-only {
   position: absolute;
+  top: 0; /* out of the page's height, so it never adds a scroll */
   width: 1px;
   height: 1px;
   overflow: hidden;
@@ -285,7 +285,7 @@ label {
   align-items: center;
   gap: 5px;
   min-width: 0;
-  min-height: max(58px, calc((100dvh - 260px) / 6)); /* the month fills the phone screen */
+  min-height: 58px;
   padding: 6px 2px 8px;
   border: 0;
   border-radius: var(--radius-sm);
@@ -297,6 +297,10 @@ label {
 @media (hover: hover) {
   .day:hover { background: var(--paper-hover); }
 }
+
+.day:active { background: var(--paper-hover); }
+.day:active .num { transform: scale(.92); }
+.day .num { transition: transform .14s var(--ease-out); }
 
 .day .num {
   display: grid;
@@ -942,6 +946,35 @@ button.row:focus-visible { outline-offset: -2px; }
 .sheet-actions { display: flex; gap: 10px; margin-top: 6px; }
 .sheet-actions .btn { height: 52px; }
 .sheet-actions [data-save] { flex: 1; }
+
+/* ---------- phone: the month fits the screen exactly, so it never scrolls up or down */
+
+html { overscroll-behavior: none; }
+
+@media (max-width: 767px) {
+  html:has(.shell[data-view="month"]) { overflow: hidden; }
+
+  .shell[data-view="month"] {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 92px);
+  }
+
+  .shell[data-view="month"] .month-card {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .shell[data-view="month"] .grid {
+    flex: 1;
+    grid-template-rows: repeat(6, minmax(0, 1fr));
+  }
+
+  .shell[data-view="month"] .day { min-height: 0; }
+}
 
 /* ---------- computer */
 

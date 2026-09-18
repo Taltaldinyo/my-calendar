@@ -1,6 +1,6 @@
 // Everything that reads or writes events. The screens never talk to Supabase directly.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-import { SUPABASE_URL, SUPABASE_KEY, LOGIN_EMAIL } from './config.js';
+import { SUPABASE_URL, SUPABASE_KEY, LOGIN_EMAIL } from './config.js?v=6';
 
 // Demo mode: sample events kept in memory, no sign-in. Only on this computer (localhost),
 // so the screens can be checked without the real password.

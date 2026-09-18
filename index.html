@@ -14,9 +14,14 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://hhpoypzgnlmkmundyvft.supabase.co" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700&family=IBM+Plex+Sans+Hebrew:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css">
-  <script type="module" src="app.js"></script>
+  <!-- ?v= is raised on every update (here and in the two imports), so a phone never mixes old and new files -->
+  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="modulepreload" href="data.js?v=6">
+  <link rel="modulepreload" href="config.js?v=6">
+  <script type="module" src="app.js?v=6"></script>
 </head>
 <body>
   <main id="app"></main>
