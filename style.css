@@ -255,6 +255,8 @@ label {
 }
 
 .month-card {
+  position: relative;
+  perspective: 1600px;
   padding: 8px 6px 10px;
   border: 1px solid rgb(228 220 205 / .7);
   border-radius: var(--radius-lg);
@@ -336,6 +338,42 @@ label {
 }
 
 .marks .skel { width: 14px; height: 6px; }
+
+/* ---------- turning the month like a page (spine on the right, as in a Hebrew book) */
+
+.page-ghost {
+  position: absolute;
+  z-index: 2;
+  margin: 0;
+  background: var(--paper);
+  transform-origin: right center;
+  backface-visibility: hidden;
+  pointer-events: none;
+}
+
+.page-ghost::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(to left, rgb(40 30 10 / 0), rgb(40 30 10 / .14));
+  opacity: 0;
+}
+
+.page-ghost.turn-away { animation: page-away .56s cubic-bezier(.45, .05, .35, 1) forwards; }
+.page-ghost.turn-away::after { animation: page-shade .56s ease-in forwards; }
+.page-ghost.lie-under { z-index: 0; }
+
+.grid.turn-back {
+  position: relative;
+  z-index: 1;
+  background: var(--paper);
+  transform-origin: right center;
+  backface-visibility: hidden;
+  animation: page-back .56s cubic-bezier(.2, .7, .3, 1);
+}
+
+.title-in { animation: title-in .4s var(--ease-out); }
 
 .enter-next { animation: from-left .28s var(--ease-out); }
 .enter-prev { animation: from-right .28s var(--ease-out); }
@@ -512,6 +550,67 @@ button.row:focus-visible { outline-offset: -2px; }
 }
 
 .agenda-empty .btn { margin-top: 18px; }
+
+/* ---------- toast after saving or deleting */
+
+.toast {
+  position: fixed;
+  z-index: 20;
+  inset-inline: 0;
+  bottom: calc(env(safe-area-inset-bottom) + 92px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  margin-inline: auto;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 15px;
+  font-weight: 500;
+  box-shadow: 0 12px 30px -12px rgb(29 43 42 / .55);
+  opacity: 0;
+  transform: translateY(14px) scale(.97);
+  pointer-events: none;
+  transition: opacity .22s ease, transform .4s var(--ease-out);
+}
+
+.toast.is-on { opacity: 1; transform: none; }
+
+.toast svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: #8FD3C9;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- opening a day: it grows out of the tapped square (view transitions) */
+
+.shell[data-view="day"] { view-transition-name: day; }
+.dock { view-transition-name: dock; }
+:active-view-transition .view-enter { animation: none; }
+
+::view-transition-group(day) {
+  animation-duration: .46s;
+  animation-timing-function: cubic-bezier(.22, 1, .36, 1);
+}
+
+::view-transition-old(day),
+::view-transition-new(day) {
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+
+::view-transition-old(day) { animation: vt-out .2s ease-out both; }
+::view-transition-new(day) { animation: vt-in .3s ease-out .05s both; }
+::view-transition-old(root) { animation: vt-out .24s ease-out both; }
+::view-transition-new(root) { animation: vt-in .34s ease-out both; }
 
 /* ---------- just saved: the event settles into place */
 
@@ -719,6 +818,7 @@ button.row:focus-visible { outline-offset: -2px; }
   .sheet[open] { animation: pop .24s var(--ease-out); }
   .sheet.is-closing { animation: pop-out .18s ease-in forwards; }
   .sheet-grip { display: none; }
+  .toast { bottom: 32px; }
   .sheet-form { padding: 28px; }
   .field-row { grid-template-columns: 1.3fr 1fr; }
 }
@@ -736,6 +836,12 @@ button.row:focus-visible { outline-offset: -2px; }
 @keyframes pop-out { to { opacity: 0; transform: scale(.96); } }
 @keyframes dot-in { from { transform: scale(0); } }
 @keyframes leave { to { opacity: 0; transform: translateX(-14px); } }
+@keyframes page-away { to { transform: rotateY(100deg); } }
+@keyframes page-back { from { transform: rotateY(100deg); } }
+@keyframes page-shade { to { opacity: 1; } }
+@keyframes title-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes vt-out { to { opacity: 0; } }
+@keyframes vt-in { from { opacity: 0; } }
 @keyframes settle {
   from { opacity: 0; transform: translateY(8px); background-color: var(--teal-soft); }
   60% { opacity: 1; transform: none; background-color: var(--teal-soft); }

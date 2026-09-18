@@ -59,6 +59,20 @@ const icon = {
 
 const sheet = createSheet();
 
+// A short note that rises above the bottom bar after saving or deleting, then goes away.
+const toast = document.createElement('div');
+toast.className = 'toast';
+toast.setAttribute('role', 'status');
+document.body.append(toast);
+let toastTimer;
+
+function showToast(text) {
+  toast.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>${text}`;
+  replay(toast, 'is-on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('is-on'), 2200);
+}
+
 // ---------- start
 
 start();
@@ -94,8 +108,30 @@ function parseRoute() {
   return { view: 'month', year: t.getFullYear(), month: t.getMonth() };
 }
 
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Opening a day grows it out of the tapped square; going back shrinks it into the square again.
 function route() {
   const next = parseRoute();
+  const switching = next.view !== state.view && root.querySelector('.shell');
+  if (!switching || !document.startViewTransition || reducedMotion()) return applyRoute(next);
+
+  const date = next.view === 'day' ? next.date : state.date;
+  const nameSquare = () => {
+    const square = root.querySelector(`.day[data-date="${date}"]`);
+    if (square) square.style.viewTransitionName = 'day';
+  };
+  if (next.view === 'day') nameSquare();
+  const transition = document.startViewTransition(() => {
+    applyRoute(next);
+    if (next.view === 'month') nameSquare();
+  });
+  transition.finished.finally(() => {
+    root.querySelectorAll('.day[style]').forEach((el) => el.style.removeProperty('view-transition-name'));
+  });
+}
+
+function applyRoute(next) {
   const sameView = next.view === state.view && root.querySelector(`.shell[data-view="${next.view}"]`);
   let direction = 0;
   if (sameView && next.view === 'month') direction = Math.sign(next.year * 12 + next.month - (state.year * 12 + state.month));
@@ -355,8 +391,11 @@ function renderMonth(direction, returningTo) {
         </section>
         ${dockHTML}
       </div>`;
+    enableSwipe(root.querySelector('.month-card'));
   }
-  root.querySelector('.month-title').innerHTML = `${MONTHS[state.month]} <span class="year">${state.year}</span>`;
+  const title = root.querySelector('.month-title');
+  title.innerHTML = `${MONTHS[state.month]} <span class="year">${state.year}</span>`;
+  if (direction) replay(title, 'title-in');
   renderGrid(direction);
   if (returningTo) root.querySelector(`.day[data-date="${returningTo}"]`)?.focus({ preventScroll: true });
 }
@@ -368,7 +407,7 @@ function renderGrid(direction = 0) {
   const today = todayISO();
   const skeleton = state.loading && !state.loaded.has(monthKey(state.year, state.month));
 
-  grid.innerHTML = monthCells(state.year, state.month).map((cell) => {
+  const html = monthCells(state.year, state.month).map((cell) => {
     const events = state.byDate.get(cell.iso) ?? [];
     const isToday = cell.iso === today;
     const label = `${isToday ? 'היום, ' : ''}יום ${DAY_NAMES[cell.weekday]}, ${cell.day} ב${MONTHS[cell.month]}, ${eventCount(events.length)}`;
@@ -391,10 +430,63 @@ function renderGrid(direction = 0) {
       </button>`;
   }).join('');
 
+  turnPage(grid, direction, () => { grid.innerHTML = html; });
   root.querySelector('.banner').hidden = !state.loadError;
-  animate(grid, direction);
   if (focused) grid.querySelector(`[data-date="${focused}"]`)?.focus();
   if (!skeleton) state.highlight = null;
+}
+
+// Changing month turns a page, like a book read right to left: going forward, the current
+// page lifts from its left edge and turns over to the right; going back, the previous page
+// turns back over from the right and lies down on top.
+function turnPage(grid, direction, paint) {
+  if (!direction || reducedMotion()) return paint(); // e.g. events arriving mid-turn: the turn goes on
+  const card = grid.parentElement;
+  card.querySelectorAll('.page-ghost').forEach((ghost) => ghost.remove());
+  grid.classList.remove('turn-back');
+
+  const ghost = grid.cloneNode(true);
+  ghost.classList.add('page-ghost');
+  ghost.setAttribute('aria-hidden', 'true');
+  ghost.inert = true;
+  Object.assign(ghost.style, {
+    top: `${grid.offsetTop}px`,
+    left: `${grid.offsetLeft}px`,
+    width: `${grid.offsetWidth}px`,
+    height: `${grid.offsetHeight}px`,
+  });
+  paint();
+  card.append(ghost);
+
+  const moving = direction > 0 ? ghost : grid;
+  if (direction > 0) ghost.classList.add('turn-away');
+  else {
+    ghost.classList.add('lie-under');
+    replay(grid, 'turn-back');
+  }
+  moving.addEventListener('animationend', () => {
+    ghost.remove();
+    grid.classList.remove('turn-back');
+  }, { once: true });
+}
+
+// On the phone, swiping the month turns the page too. Right to left: a swipe to the right
+// brings the next month, the same way the arrows point.
+function enableSwipe(el) {
+  let start = null;
+  el.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    start = e.touches.length === 1 ? { x: t.clientX, y: t.clientY, at: Date.now() } : null;
+  }, { passive: true });
+  el.addEventListener('touchend', (e) => {
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    const quick = Date.now() - start.at < 800;
+    start = null;
+    if (quick && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) shiftMonth(dx > 0 ? 1 : -1);
+  }, { passive: true });
 }
 
 // ----- day
@@ -461,11 +553,16 @@ function renderAgenda(direction = 0) {
   if (!skeleton) state.highlight = null;
 }
 
+function replay(el, className) {
+  el.classList.remove(className);
+  void el.offsetWidth; // restart the animation
+  el.classList.add(className);
+}
+
 function animate(el, direction) {
   if (!direction) return;
   el.classList.remove('enter-next', 'enter-prev');
-  void el.offsetWidth; // restart the animation
-  el.classList.add(direction > 0 ? 'enter-next' : 'enter-prev');
+  replay(el, direction > 0 ? 'enter-next' : 'enter-prev');
 }
 
 // ---------- event sheet: add (and later edit) an event
@@ -546,7 +643,7 @@ function createSheet() {
       await data.deleteEvent(id);
       removeFromCache(id);
       close();
-      status.textContent = 'האירוע נמחק';
+      showToast('האירוע נמחק');
       showDeleted(id);
     } catch (err) {
       if (data.isAuthError(err)) {
@@ -609,7 +706,7 @@ function createSheet() {
       const saved = editing ? await data.updateEvent(editing.id, fields) : await data.addEvent(fields);
       placeEvent(saved);
       close();
-      status.textContent = 'האירוע נשמר';
+      showToast('האירוע נשמר');
       showSaved(saved);
     } catch (err) {
       setBusy(false);
