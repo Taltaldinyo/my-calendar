@@ -1,4 +1,4 @@
-import * as data from './data.js?v=6';
+import * as data from './data.js?v=7';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -50,12 +50,20 @@ const escapeHTML = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&l
 const eventCount = (n) => (n === 0 ? 'אין אירועים' : n === 1 ? 'אירוע אחד' : `${n} אירועים`);
 const byTime = (a, b) => (a.time ?? '').localeCompare(b.time ?? '') || a.title.localeCompare(b.title, 'he');
 
+// Kinds are told apart by symbol and word, never by color alone.
+const KIND_NAMES = { meeting: 'פגישה', work: 'עבודה', study: 'לימודים', fun: 'בילוי', other: 'אחר' };
+
 const icon = {
   // Arrows point the way the page moves in right-to-left: back is right, forward is left.
   back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
   forward: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>',
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
   bell: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
+  meeting: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  work: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>',
+  study: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>',
+  fun: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 3v4M17 5h4"/></svg>',
+  other: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
   repeat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></svg>',
 };
 
@@ -461,7 +469,7 @@ function renderGrid(direction = 0) {
       ? '<span class="skel"></span>'
       : shown.map((ev) => `
           <span class="chip${ev.time ? '' : ' is-allday'}${isNew(ev)}">
-            ${ev.time ? `<span class="t">${ev.time}</span>` : ''}<span class="n">${escapeHTML(ev.title)}</span>
+            ${ev.kind ? `<span class="k">${icon[ev.kind]}</span>` : ''}${ev.time ? `<span class="t">${ev.time}</span>` : ''}<span class="n">${escapeHTML(ev.title)}</span>
           </span>`).join('') + (events.length > shown.length ? `<span class="more">+${events.length - shown.length} נוספים</span>` : '');
     return `
       <button class="day${cell.inMonth ? '' : ' is-out'}${isToday ? ' is-today' : ''}" data-action="open-day" data-date="${cell.iso}" aria-label="${label}">
@@ -590,9 +598,9 @@ function renderAgenda(direction = 0) {
       return `
       <li>
         <button class="row${ev.time ? '' : ' is-allday'}${ev.id === state.highlight ? ' is-new' : ''}" data-action="edit" data-id="${ev.id}"
-          aria-label="עריכת ${escapeHTML(ev.title)}, ${hours}${ev.seriesId ? ', אירוע קבוע' : ''}">
+          aria-label="עריכת ${escapeHTML(ev.title)}, ${hours}${ev.kind ? `, ${KIND_NAMES[ev.kind]}` : ''}${ev.seriesId ? ', אירוע קבוע' : ''}">
           <span class="when">${ev.time ?? 'כל היום'}${ev.endTime ? `<small>${ev.endTime}</small>` : ''}</span>
-          <span class="what">${escapeHTML(ev.title)}${ev.seriesId ? `<span class="repeat">${icon.repeat}</span>` : ''}${ev.remindMinutes ? `<span class="repeat">${icon.bell}</span>` : ''}</span>
+          <span class="what">${escapeHTML(ev.title)}${ev.seriesId ? `<span class="repeat">${icon.repeat}</span>` : ''}${ev.remindMinutes ? `<span class="repeat">${icon.bell}</span>` : ''}${ev.kind ? `<small class="kind">${icon[ev.kind]}${KIND_NAMES[ev.kind]}</small>` : ''}</span>
         </button>
       </li>`;
     }).join('')}</ol>`;
@@ -704,6 +712,12 @@ function createSheet() {
         <p class="field-error" id="ev-title-error"></p>
       </div>
       <div class="field">
+        <span class="field-label" id="ev-kind-label">סוג (לא חובה)</span>
+        <div class="kind-picks" role="group" aria-labelledby="ev-kind-label">
+          ${Object.entries(KIND_NAMES).map(([kind, name]) => `<button type="button" class="kp" data-kind="${kind}" aria-pressed="false">${icon[kind]}${name}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field">
         <label for="ev-date">תאריך</label>
         <div class="picker"><span class="picker-value" data-show="date"></span><input id="ev-date" type="date" required></div>
       </div>
@@ -769,6 +783,9 @@ function createSheet() {
   const choiceBox = $('[data-choice]');
   const choiceButtons = $('[data-choice-buttons]');
   const picks = [...el.querySelectorAll('[data-wd]')];
+  const kindPicks = [...el.querySelectorAll('[data-kind]')];
+  const pickedKind = () => kindPicks.find((b) => b.getAttribute('aria-pressed') === 'true')?.dataset.kind ?? null;
+  const setKind = (kind) => kindPicks.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.kind === kind)));
   let editing = null;
   let closing = false;
   let settleChoice = null;
@@ -820,6 +837,8 @@ function createSheet() {
     sync();
   });
   picks.forEach((b) => b.addEventListener('click', () => setPick(b, b.getAttribute('aria-pressed') !== 'true')));
+  // One kind at most; tapping the chosen one again clears it.
+  kindPicks.forEach((b) => b.addEventListener('click', () => setKind(b.dataset.kind === pickedKind() ? null : b.dataset.kind)));
   inputs.title.addEventListener('input', () => setTitleError(''));
   $('[data-cancel]').addEventListener('click', close);
   el.addEventListener('cancel', (e) => { e.preventDefault(); close(); }); // Esc
@@ -884,7 +903,7 @@ function createSheet() {
     const endTime = time && inputs.end.value ? inputs.end.value : null;
     if (endTime && endTime <= time) return fail('שעת הסיום לפני שעת ההתחלה');
     const remindMinutes = time && inputs.remind.value ? Number(inputs.remind.value) : null;
-    return { title, date: inputs.date.value, time, endTime, remindMinutes };
+    return { title, date: inputs.date.value, time, endTime, remindMinutes, kind: pickedKind() };
   }
 
   // Every chosen weekday from the first date up to "until", at most a year ahead.
@@ -945,7 +964,7 @@ function createSheet() {
     perform(async () => {
       let saved;
       if (scope === 'all') {
-        (await data.updateSeries(seriesId, fields)).forEach(placeEvent); // name and hours, everywhere
+        (await data.updateSeries(seriesId, fields)).forEach(placeEvent); // name, hours and kind, everywhere
         saved = findEvent(id);
       }
       if (scope === 'one' || fields.date !== oldDate) saved = await data.updateEvent(id, fields);
@@ -1004,10 +1023,11 @@ function createSheet() {
     inputs.time.value = event?.time ?? '';
     inputs.end.value = event?.endTime ?? '';
     inputs.remind.value = event?.remindMinutes ? String(event.remindMinutes) : '';
+    setKind(event?.kind ?? null);
     inputs.repeat.checked = false;
     inputs.until.value = '';
     picks.forEach((b) => setPick(b, false));
-    // A weekly event is set up when it's created; later only its name and hours change.
+    // A weekly event is set up when it's created; later only its name, hours and kind change.
     $('[data-repeat-field]').hidden = Boolean(event);
     $('[data-series-note]').hidden = !event?.seriesId;
     deleteButton.hidden = !event;

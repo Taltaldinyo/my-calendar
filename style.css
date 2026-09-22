@@ -525,6 +525,18 @@ button.row:focus-visible { outline-offset: -2px; }
   vertical-align: -2px;
 }
 
+.what .kind {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.what .kind svg { width: 14px; height: 14px; color: var(--teal); }
+
 .row .skel { height: 14px; }
 .row .when-skel { width: 44px; }
 
@@ -771,7 +783,7 @@ button.row:focus-visible { outline-offset: -2px; }
   font-weight: 500;
 }
 
-.series-note svg, .repeat svg {
+.series-note svg, .repeat svg, .kind svg, .kp svg, .chip .k svg {
   width: 16px;
   height: 16px;
   fill: none;
@@ -846,6 +858,30 @@ button.row:focus-visible { outline-offset: -2px; }
 }
 
 .wd:active { transform: scale(.92); }
+
+.field-label { display: block; margin-bottom: 8px; color: var(--ink-2); font-size: 14px; font-weight: 500; }
+
+.kind-picks { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.kp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--cream);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color .18s, border-color .18s, color .18s, transform .14s var(--ease-out);
+}
+
+.kp:active { transform: scale(.95); }
+.kp[aria-pressed="true"] { border-color: var(--teal); background: var(--teal); color: var(--paper); }
 .wd[aria-pressed="true"] { border-color: var(--teal); background: var(--teal); color: var(--paper); }
 
 /* ---------- reminder picker in the sheet */
@@ -1018,6 +1054,9 @@ html { overscroll-behavior: none; }
     font-size: 13px;
     line-height: 1.4;
   }
+
+  .chip .k { flex: none; display: inline-flex; align-self: center; color: var(--teal); }
+  .chip .k svg { width: 13px; height: 13px; }
 
   .chip .t {
     flex: none;

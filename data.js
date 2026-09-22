@@ -1,6 +1,6 @@
 // Everything that reads or writes events. The screens never talk to Supabase directly.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-import { SUPABASE_URL, SUPABASE_KEY, LOGIN_EMAIL } from './config.js?v=6';
+import { SUPABASE_URL, SUPABASE_KEY, LOGIN_EMAIL } from './config.js?v=7';
 
 // Demo mode: sample events kept in memory, no sign-in. Only on this computer (localhost),
 // so the screens can be checked without the real password.
@@ -11,7 +11,7 @@ const supabase = isDemo ? null : createClient(SUPABASE_URL, SUPABASE_KEY);
 
 export class WrongPasswordError extends Error {}
 
-const COLUMNS = 'id,title,date,time,end_time,series_id,remind_minutes';
+const COLUMNS = 'id,title,date,time,end_time,series_id,remind_minutes,kind';
 const hhmm = (t) => (t ? t.slice(0, 5) : null);
 const clean = (row) => ({
   id: row.id,
@@ -21,9 +21,10 @@ const clean = (row) => ({
   endTime: hhmm(row.end_time),
   seriesId: row.series_id ?? null, // set when the event is one occurrence of a weekly event
   remindMinutes: row.remind_minutes ?? null, // reminder on the phone, this many minutes before
+  kind: row.kind ?? null, // meeting / work / study / fun / other, or none
 });
-const toRow = ({ title, date, time, endTime, remindMinutes }) =>
-  ({ title, date, time, end_time: endTime ?? null, remind_minutes: remindMinutes ?? null });
+const toRow = ({ title, date, time, endTime, remindMinutes, kind }) =>
+  ({ title, date, time, end_time: endTime ?? null, remind_minutes: remindMinutes ?? null, kind: kind ?? null });
 
 export async function hasSession() {
   if (isDemo) return true;
@@ -82,9 +83,9 @@ export async function updateEvent(id, fields) {
   return clean(data);
 }
 
-// Name and hours change in every occurrence; each keeps its own date.
-export async function updateSeries(seriesId, { title, time, endTime, remindMinutes }) {
-  const fields = { title, time, end_time: endTime ?? null, remind_minutes: remindMinutes ?? null };
+// Name, hours and kind change in every occurrence; each keeps its own date.
+export async function updateSeries(seriesId, { title, time, endTime, remindMinutes, kind }) {
+  const fields = { title, time, end_time: endTime ?? null, remind_minutes: remindMinutes ?? null, kind: kind ?? null };
   if (isDemo) return demo.update((e) => e.series_id === seriesId, fields);
   const { data, error } = await supabase.from('events').update(fields).eq('series_id', seriesId).select(COLUMNS);
   if (error) throw error;
@@ -135,22 +136,22 @@ const demo = (() => {
   };
   let nextId = 1;
   // Rows look like the database: end_time and series_id, cleaned on the way out.
-  const make = (offset, title, time = null, end_time = null, series_id = null) =>
-    ({ id: String(nextId++), title, date: dayFromToday(offset), time, end_time, series_id });
+  const make = (offset, title, time = null, end_time = null, series_id = null, kind = null) =>
+    ({ id: String(nextId++), title, date: dayFromToday(offset), time, end_time, series_id, kind });
   const events = [
-    make(0, 'הרצאה במימון', '10:00', '12:00'),
-    make(0, 'חדר כושר', '18:30'),
+    make(0, 'הרצאה במימון', '10:00', '12:00', null, 'study'),
+    make(0, 'חדר כושר', '18:30', null, null, 'other'),
     make(2, 'יום הולדת לאמא'),
     make(2, 'ארוחת ערב משפחתית', '20:00'),
     make(5, 'מבחן בחשבונאות פיננסית', '09:00', '12:00'),
-    make(-3, 'פגישה עם המנחה', '14:00'),
+    make(-3, 'פגישה עם המנחה', '14:00', null, null, 'meeting'),
     make(8, 'סדנת הכנה לבחינה בדיני מסים, כולל חומרי תרגול', '16:00'),
     make(11, 'יום חופש'),
     make(11, 'רופא שיניים', '08:15'),
     make(11, 'תרגול בחשבונאות', '12:00'),
-    make(11, 'קפה עם נועם', '17:00'),
-    make(11, 'סרט', '21:30'),
-    ...[1, 8, 15, 22].map((offset) => make(offset, 'סמינר', '08:00', '15:00', 'demo-series')),
+    make(11, 'קפה עם נועם', '17:00', null, null, 'fun'),
+    make(11, 'סרט', '21:30', null, null, 'fun'),
+    ...[1, 8, 15, 22].map((offset) => make(offset, 'סמינר', '08:00', '15:00', 'demo-series', 'work')),
   ];
   const wait = () => new Promise((resolve) => setTimeout(resolve, 350));
   return {
