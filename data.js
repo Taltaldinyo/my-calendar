@@ -1,6 +1,6 @@
 // Everything that reads or writes events. The screens never talk to Supabase directly.
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-import { SUPABASE_URL, SUPABASE_KEY, LOGIN_EMAIL } from './config.js?v=7';
+import { SUPABASE_URL, SUPABASE_KEY, LOGIN_EMAIL } from './config.js?v=8';
 
 // Demo mode: sample events kept in memory, no sign-in. Only on this computer (localhost),
 // so the screens can be checked without the real password.
@@ -21,7 +21,7 @@ const clean = (row) => ({
   endTime: hhmm(row.end_time),
   seriesId: row.series_id ?? null, // set when the event is one occurrence of a weekly event
   remindMinutes: row.remind_minutes ?? null, // reminder on the phone, this many minutes before
-  kind: row.kind ?? null, // meeting / work / study / fun / other, or none
+  kind: row.kind ?? null, // meeting / work / study / fun / medical / other, or none
 });
 const toRow = ({ title, date, time, endTime, remindMinutes, kind }) =>
   ({ title, date, time, end_time: endTime ?? null, remind_minutes: remindMinutes ?? null, kind: kind ?? null });
@@ -147,7 +147,7 @@ const demo = (() => {
     make(-3, 'פגישה עם המנחה', '14:00', null, null, 'meeting'),
     make(8, 'סדנת הכנה לבחינה בדיני מסים, כולל חומרי תרגול', '16:00'),
     make(11, 'יום חופש'),
-    make(11, 'רופא שיניים', '08:15'),
+    make(11, 'רופא שיניים', '08:15', null, null, 'medical'),
     make(11, 'תרגול בחשבונאות', '12:00'),
     make(11, 'קפה עם נועם', '17:00', null, null, 'fun'),
     make(11, 'סרט', '21:30', null, null, 'fun'),
