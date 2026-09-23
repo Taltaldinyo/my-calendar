@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#F5EFE4">
+  <!-- A personal app: keep it out of search results -->
+  <meta name="robots" content="noindex, nofollow">
   <title>לוח השנה שלי</title>
   <link rel="icon" href="icon.png">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -14,14 +16,15 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://hhpoypzgnlmkmundyvft.supabase.co" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700&family=IBM+Plex+Sans+Hebrew:wght@400;500;600&display=swap">
   <!-- ?v= is raised on every update (here and in the two imports), so a phone never mixes old and new files -->
-  <link rel="stylesheet" href="style.css?v=8">
-  <link rel="modulepreload" href="data.js?v=8">
-  <link rel="modulepreload" href="config.js?v=8">
-  <script type="module" src="app.js?v=8"></script>
+  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="modulepreload" href="data.js?v=9">
+  <link rel="modulepreload" href="config.js?v=9">
+  <!-- Our own copy of the Supabase library. A classic script, so it runs before app.js -->
+  <script src="vendor/supabase.js?v=9"></script>
+  <script type="module" src="app.js?v=9"></script>
 </head>
 <body>
   <main id="app"></main>

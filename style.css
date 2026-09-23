@@ -4,7 +4,7 @@
   --paper-hover: #F2EBDF;
   --ink: #1D2B2A;
   --ink-2: #5E6B68;
-  --ink-3: #7D8783;
+  --ink-3: #636C69;  /* 4.7:1 on cream - WCAG AA for normal text */
   --line: #E4DCCD;
   --teal: #0B6F6B;
   --teal-strong: #08524F;
