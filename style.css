@@ -652,12 +652,14 @@ button.row:focus-visible { outline-offset: -2px; }
 /* ---------- event sheet */
 
 .sheet {
+  --sheet-pad: 20px;
   width: 100%;
   max-width: 560px;
   max-height: calc(100dvh - 24px - var(--keyboard, 0px));
   margin: auto auto var(--keyboard, 0px);
   padding: 0;
   overflow: auto;
+  scroll-padding-bottom: 110px; /* a field moved into view is not left behind the pinned buttons */
   border: 0;
   border-radius: 28px 28px 0 0;
   background: var(--paper);
@@ -676,7 +678,7 @@ button.row:focus-visible { outline-offset: -2px; }
 
 .sheet.is-closing::backdrop { animation: fade .22s ease reverse forwards; }
 
-.sheet-form { padding: 10px 20px calc(env(safe-area-inset-bottom) + 20px); }
+.sheet-form { padding: 10px var(--sheet-pad) 0; }
 
 .sheet-grip {
   width: 40px;
@@ -983,33 +985,57 @@ button.row:focus-visible { outline-offset: -2px; }
 .sheet-actions .btn { height: 52px; }
 .sheet-actions [data-save] { flex: 1; }
 
-/* ---------- phone: the month fits the screen exactly, so it never scrolls up or down */
+/* Save and cancel (and the question that takes their place) stay pinned to the bottom of the
+   sheet, however long the form gets - the form scrolls under them and fades out above them. */
+.sheet-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin-inline: calc(-1 * var(--sheet-pad));
+  padding: 4px var(--sheet-pad) calc(env(safe-area-inset-bottom) + 20px);
+  background: var(--paper);
+}
+
+.sheet-footer::before {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  height: 20px;
+  background: linear-gradient(to top, var(--paper), rgb(251 248 242 / 0));
+  pointer-events: none;
+}
+
+.sheet.has-keyboard .sheet-footer { padding-bottom: 12px; }
+
+/* ---------- the month fits the window exactly: the six weeks share its height (phone and computer) */
 
 html { overscroll-behavior: none; }
 
+.shell[data-view="month"] {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+.shell[data-view="month"] .month-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.shell[data-view="month"] .grid {
+  flex: 1;
+  grid-template-rows: repeat(6, minmax(0, 1fr));
+}
+
+.shell[data-view="month"] .day { min-height: 0; }
+
+/* phone: it never scrolls up or down */
 @media (max-width: 767px) {
   html:has(.shell[data-view="month"]) { overflow: hidden; }
-
-  .shell[data-view="month"] {
-    display: flex;
-    flex-direction: column;
-    height: 100dvh;
-    padding-bottom: calc(env(safe-area-inset-bottom) + 92px);
-  }
-
-  .shell[data-view="month"] .month-card {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-height: 0;
-  }
-
-  .shell[data-view="month"] .grid {
-    flex: 1;
-    grid-template-rows: repeat(6, minmax(0, 1fr));
-  }
-
-  .shell[data-view="month"] .day { min-height: 0; }
+  .shell[data-view="month"] { padding-bottom: calc(env(safe-area-inset-bottom) + 92px); }
 }
 
 /* ---------- computer */
@@ -1026,22 +1052,30 @@ html { overscroll-behavior: none; }
   .weekdays span { padding: 8px 10px 10px; text-align: start; }
   .grid { gap: 4px; }
 
+  /* A very short window scrolls a little rather than squeezing the days below one line of events. */
+  .shell[data-view="month"] { min-height: 640px; padding-bottom: 24px; }
+  .shell[data-view="month"] .grid { min-height: 0; } /* a busy day must not stretch the weeks past the window */
+
   .day {
     align-items: stretch;
-    gap: 6px;
-    min-height: 116px;
-    padding: 8px;
+    gap: 4px;
+    padding: 6px 8px;
+    overflow: hidden;
     text-align: start;
   }
 
-  .day .num { width: 30px; height: 30px; font-size: 14px; }
+  .day .num { flex: none; width: 30px; height: 30px; font-size: 14px; }
   .marks { display: none; }
 
+  /* The events that fit in the square's height; app.js trims the rest into "+N more". */
   .chips {
     display: flex;
+    flex: 1;
     flex-direction: column;
     gap: 3px;
     min-width: 0;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .chip {
@@ -1093,7 +1127,9 @@ html { overscroll-behavior: none; }
   .sheet.is-closing { animation: pop-out .18s ease-in forwards; }
   .sheet-grip { display: none; }
   .toast { bottom: 32px; }
-  .sheet-form { padding: 28px; }
+  .sheet { --sheet-pad: 28px; }
+  .sheet-form { padding: 28px 28px 0; }
+  .sheet-footer { padding-bottom: 28px; }
   .field-row { grid-template-columns: 1.3fr 1fr; }
 }
 

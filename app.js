@@ -1,4 +1,4 @@
-import * as data from './data.js?v=9';
+import * as data from './data.js?v=10';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -17,7 +17,7 @@ const state = {
   loadedDays: new Set(), // single days fetched on their own
   loading: false,
   loadError: false,
-  openedFromMonth: false, // the day view sits on top of the month in history
+  openedFrom: null, // 'YYYY-MM' of the month the day view was opened from, which sits under it in history
   highlight: null, // id of an event that was just saved, animated once where it lands
   pushReady: false, // this phone is set up to receive reminders
   started: false,
@@ -153,7 +153,7 @@ function applyRoute(next) {
   if (sameView && next.view === 'month') direction = Math.sign(next.year * 12 + next.month - (state.year * 12 + state.month));
   if (sameView && next.view === 'day') direction = Math.sign(next.date.localeCompare(state.date));
   const returningTo = state.view === 'day' && next.view === 'month' ? state.date : null;
-  if (next.view === 'month') state.openedFromMonth = false;
+  if (next.view === 'month') state.openedFrom = null;
 
   Object.assign(state, next);
   if (state.view === 'day') renderDay(direction);
@@ -179,13 +179,16 @@ function shiftDay(delta) {
 }
 
 function openDay(date) {
-  state.openedFromMonth = true;
+  state.openedFrom = monthKey(state.year, state.month);
   go(`#/${date}`, { push: true });
 }
 
+// Always back to the month of the day on screen - the month named on the button - even after
+// moving to another month's day (arrows, a gray square, saving an event on another date).
 function backToMonth() {
-  if (state.openedFromMonth) history.back(); // keeps the phone's back button in step
-  else go(`#/${monthKey(state.year, state.month)}`);
+  const month = monthKey(state.year, state.month);
+  if (state.openedFrom === month) history.back(); // that month is right under us: keeps the phone's back button in step
+  else go(`#/${month}`);
 }
 
 function goToday() {
@@ -442,6 +445,8 @@ function renderMonth(direction, returningTo) {
       </div>`;
     enableSwipe(root.querySelector('.month-card'));
     renderPushCard();
+    gridSize.disconnect();
+    gridSize.observe(root.querySelector('.grid'));
   }
   const title = root.querySelector('.month-title');
   title.innerHTML = `${MONTHS[state.month]} <span class="year">${state.year}</span>`;
@@ -461,17 +466,16 @@ function renderGrid(direction = 0) {
     const events = state.byDate.get(cell.iso) ?? [];
     const isToday = cell.iso === today;
     const label = `${isToday ? 'היום, ' : ''}יום ${DAY_NAMES[cell.weekday]}, ${cell.day} ב${MONTHS[cell.month]}, ${eventCount(events.length)}`;
-    const shown = events.length > 3 ? events.slice(0, 2) : events;
     const isNew = (ev) => (ev.id === state.highlight ? ' is-new' : '');
     const marks = skeleton && cell.inMonth
       ? '<span class="skel"></span>'
       : events.slice(0, 3).map((ev) => `<i class="${isNew(ev)}"></i>`).join('');
     const chips = skeleton && cell.inMonth
       ? '<span class="skel"></span>'
-      : shown.map((ev) => `
+      : events.map((ev) => `
           <span class="chip${ev.time ? '' : ' is-allday'}${isNew(ev)}">
             ${ev.kind ? `<span class="k">${icon[ev.kind]}</span>` : ''}${ev.time ? `<span class="t">${ev.time}</span>` : ''}<span class="n">${escapeHTML(ev.title)}</span>
-          </span>`).join('') + (events.length > shown.length ? `<span class="more">+${events.length - shown.length} נוספים</span>` : '');
+          </span>`).join(''); // all of them; fitChips keeps what fits the square
     return `
       <button class="day${cell.inMonth ? '' : ' is-out'}${isToday ? ' is-today' : ''}" data-action="open-day" data-date="${cell.iso}" aria-label="${label}">
         <span class="num">${cell.day}</span>
@@ -482,9 +486,36 @@ function renderGrid(direction = 0) {
 
   turnPage(grid, direction, () => { grid.innerHTML = html; });
   root.querySelector('.banner').hidden = !state.loadError;
+  fitChips(grid);
   if (focused) grid.querySelector(`[data-date="${focused}"]`)?.focus();
   if (!skeleton) state.highlight = null;
 }
+
+// On the computer the squares take their height from the window. Each shows the events that
+// fit, and the rest as "+N more" - never an event cut off without a sign.
+const wide = matchMedia('(min-width: 768px)');
+let fittedHeight = 0;
+
+function fitChips(grid) {
+  fittedHeight = grid.offsetHeight;
+  if (!wide.matches) return; // on the phone the squares show dots, not names
+  const crowded = [...grid.querySelectorAll('.chips')].filter((box) => box.scrollHeight > box.clientHeight + 1);
+  for (const box of crowded) {
+    const chips = box.querySelectorAll('.chip');
+    let shown = chips.length;
+    let more = null;
+    while (shown && box.scrollHeight > box.clientHeight + 1) {
+      chips[--shown].remove();
+      more ??= box.appendChild(Object.assign(document.createElement('span'), { className: 'more' }));
+      more.textContent = shown ? `+${chips.length - shown} נוספים` : eventCount(chips.length);
+    }
+  }
+}
+
+// When the window's height changes, the squares change with it, so the events are fitted again.
+const gridSize = new ResizeObserver(([entry]) => {
+  if (wide.matches && Math.abs(entry.contentRect.height - fittedHeight) >= 1) renderGrid();
+});
 
 // Changing month turns a page, like a book read right to left: going forward, the current
 // page lifts from its left edge and turns over to the right; going back, the previous page
@@ -761,14 +792,16 @@ function createSheet() {
           <div class="picker"><span class="picker-value" data-show="until"></span><input id="ev-until" type="date"></div>
         </div>
       </div>
-      <p class="form-error" role="alert"></p>
-      <div class="sheet-actions" data-main-actions>
-        <button type="submit" class="btn btn-primary" data-save>שמור</button>
-        <button type="button" class="btn btn-ghost" data-cancel>ביטול</button>
-      </div>
-      <div class="confirm" data-choice hidden>
-        <p data-choice-text></p>
-        <div class="choice-buttons" data-choice-buttons></div>
+      <div class="sheet-footer">
+        <p class="form-error" role="alert"></p>
+        <div class="sheet-actions" data-main-actions>
+          <button type="submit" class="btn btn-primary" data-save>שמור</button>
+          <button type="button" class="btn btn-ghost" data-cancel>ביטול</button>
+        </div>
+        <div class="confirm" data-choice hidden>
+          <p data-choice-text></p>
+          <div class="choice-buttons" data-choice-buttons></div>
+        </div>
       </div>
     </form>`;
   document.body.append(el);
@@ -836,6 +869,8 @@ function createSheet() {
   inputs.repeat.addEventListener('change', () => {
     if (inputs.repeat.checked && !pickedDays().length && inputs.date.value) setPick(picks[fromISO(inputs.date.value).getDay()], true);
     sync();
+    // The days and end date open under the pinned buttons; bring them into view.
+    if (inputs.repeat.checked) $('[data-recur]').scrollIntoView({ block: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' });
   });
   picks.forEach((b) => b.addEventListener('click', () => setPick(b, b.getAttribute('aria-pressed') !== 'true')));
   // One kind at most; tapping the chosen one again clears it.
@@ -1006,14 +1041,21 @@ function createSheet() {
 
   // On phones the keyboard covers the bottom of the screen; lift the sheet above it.
   const vv = window.visualViewport;
-  const onViewport = () => el.style.setProperty('--keyboard', `${Math.max(0, window.innerHeight - vv.height - vv.offsetTop)}px`);
+  const onViewport = () => {
+    const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    el.style.setProperty('--keyboard', `${keyboard}px`);
+    el.classList.toggle('has-keyboard', keyboard > 120); // a real keyboard covers the home bar: the buttons can sit lower
+  };
   const trackKeyboard = (on) => {
     if (!vv) return;
     const method = on ? 'addEventListener' : 'removeEventListener';
     vv[method]('resize', onViewport);
     vv[method]('scroll', onViewport);
     if (on) onViewport();
-    else el.style.removeProperty('--keyboard');
+    else {
+      el.style.removeProperty('--keyboard');
+      el.classList.remove('has-keyboard');
+    }
   };
 
   function open({ date, event = null }) {
