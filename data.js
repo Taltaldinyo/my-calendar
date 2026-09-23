@@ -2,7 +2,7 @@
 // The Supabase library is a copy kept in vendor/ (version 2.117.0), loaded by index.html.
 // Not from a public CDN on purpose: nothing outside the repo can change what runs here.
 const { createClient } = window.supabase;
-import { SUPABASE_URL, SUPABASE_KEY, LOGIN_EMAIL } from './config.js?v=11';
+import { SUPABASE_URL, SUPABASE_KEY, LOGIN_EMAIL } from './config.js?v=12';
 
 // Demo mode: sample events kept in memory, no sign-in. Only on this computer (localhost),
 // so the screens can be checked without the real password.
@@ -23,7 +23,7 @@ const clean = (row) => ({
   endTime: hhmm(row.end_time),
   seriesId: row.series_id ?? null, // set when the event is one occurrence of a weekly event
   remindMinutes: row.remind_minutes ?? null, // reminder on the phone, this many minutes before
-  kind: row.kind ?? null, // meeting / work / study / fun / medical / other, or none
+  kind: row.kind ?? null, // meeting / work / study / fun / medical / workout / other, or none
 });
 const toRow = ({ title, date, time, endTime, remindMinutes, kind }) =>
   ({ title, date, time, end_time: endTime ?? null, remind_minutes: remindMinutes ?? null, kind: kind ?? null });
@@ -142,7 +142,7 @@ const demo = (() => {
     ({ id: String(nextId++), title, date: dayFromToday(offset), time, end_time, series_id, kind });
   const events = [
     make(0, 'הרצאה במימון', '10:00', '12:00', null, 'study'),
-    make(0, 'חדר כושר', '18:30', null, null, 'other'),
+    make(0, 'חדר כושר', '18:30', null, null, 'workout'),
     make(2, 'יום הולדת לאמא'),
     make(2, 'ארוחת ערב משפחתית', '20:00'),
     make(5, 'מבחן בחשבונאות פיננסית', '09:00', '12:00'),
