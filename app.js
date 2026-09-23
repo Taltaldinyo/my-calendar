@@ -1,4 +1,4 @@
-import * as data from './data.js?v=10';
+import * as data from './data.js?v=11';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -19,6 +19,7 @@ const state = {
   loadError: false,
   openedFrom: null, // 'YYYY-MM' of the month the day view was opened from, which sits under it in history
   highlight: null, // id of an event that was just saved, animated once where it lands
+  highlightDot: false, // its day had nothing on it before, so the phone's dot for that day pops in
   pushReady: false, // this phone is set up to receive reminders
   started: false,
 };
@@ -290,17 +291,21 @@ function removeSeriesFromCache(seriesId) {
   }
 }
 
-// Put a saved event into the cache, wherever it was before.
+// Put a saved event into the cache, wherever it was before. Returns whether its day was free
+// until now (checked before the event itself is moved, so editing it in place doesn't count).
 function placeEvent(ev) {
+  const dayWasFree = !state.byDate.get(ev.date)?.length;
   removeFromCache(ev.id);
   if (!state.byDate.has(ev.date)) state.byDate.set(ev.date, []);
   state.byDate.get(ev.date).push(ev);
   state.byDate.get(ev.date).sort(byTime);
+  return dayWasFree;
 }
 
 // After saving, show the event where it landed: its day in day view, its month in month view.
-function showSaved(ev) {
+function showSaved(ev, dayWasFree = false) {
   state.highlight = ev.id;
+  state.highlightDot = dayWasFree;
   const d = fromISO(ev.date);
   if (state.view === 'day' && ev.date !== state.date) go(`#/${ev.date}`);
   else if (state.view === 'month' && (d.getFullYear() !== state.year || d.getMonth() !== state.month)) go(`#/${monthKey(d.getFullYear(), d.getMonth())}`);
@@ -467,9 +472,12 @@ function renderGrid(direction = 0) {
     const isToday = cell.iso === today;
     const label = `${isToday ? 'היום, ' : ''}יום ${DAY_NAMES[cell.weekday]}, ${cell.day} ב${MONTHS[cell.month]}, ${eventCount(events.length)}`;
     const isNew = (ev) => (ev.id === state.highlight ? ' is-new' : '');
+    // On the phone a single dot says the day isn't free, however many events it has. It pops in
+    // only when the day has just stopped being free; a second event doesn't move it.
+    const dotIsNew = state.highlightDot && events.some((ev) => ev.id === state.highlight);
     const marks = skeleton && cell.inMonth
       ? '<span class="skel"></span>'
-      : events.slice(0, 3).map((ev) => `<i class="${isNew(ev)}"></i>`).join('');
+      : events.length ? `<i class="${dotIsNew ? 'is-new' : ''}"></i>` : '';
     const chips = skeleton && cell.inMonth
       ? '<span class="skel"></span>'
       : events.map((ev) => `
@@ -958,10 +966,10 @@ function createSheet() {
     return dates;
   }
 
-  const finish = (toastText, ev) => {
+  const finish = (toastText, ev, dayWasFree) => {
     close();
     showToast(toastText);
-    showSaved(ev);
+    showSaved(ev, dayWasFree);
   };
 
   form.addEventListener('submit', async (e) => {
@@ -974,16 +982,15 @@ function createSheet() {
       if (!dates) return;
       perform(async () => {
         const saved = await data.addSeries({ ...fields, dates });
-        saved.forEach(placeEvent);
-        finish(`האירוע הקבוע נשמר, ${saved.length} פעמים`, saved[0]);
+        const wasFree = saved.map((ev) => placeEvent(ev));
+        finish(`האירוע הקבוע נשמר, ${saved.length} פעמים`, saved[0], wasFree[0]);
       }, 'השמירה נכשלה, נסה שוב');
       return;
     }
     if (!editing) {
       perform(async () => {
         const saved = await data.addEvent(fields);
-        placeEvent(saved);
-        finish('האירוע נשמר', saved);
+        finish('האירוע נשמר', saved, placeEvent(saved));
       }, 'השמירה נכשלה, נסה שוב');
       return;
     }
@@ -1004,8 +1011,7 @@ function createSheet() {
         saved = findEvent(id);
       }
       if (scope === 'one' || fields.date !== oldDate) saved = await data.updateEvent(id, fields);
-      placeEvent(saved);
-      finish(scope === 'all' ? 'הסדרה עודכנה' : 'האירוע נשמר', saved);
+      finish(scope === 'all' ? 'הסדרה עודכנה' : 'האירוע נשמר', saved, placeEvent(saved));
     }, 'השמירה נכשלה, נסה שוב');
   });
 
