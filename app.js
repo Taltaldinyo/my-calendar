@@ -1,4 +1,4 @@
-import * as data from './data.js?v=12';
+import * as data from './data.js?v=13';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -20,6 +20,9 @@ const state = {
   openedFrom: null, // 'YYYY-MM' of the month the day view was opened from, which sits under it in history
   highlight: null, // id of an event that was just saved, animated once where it lands
   highlightDot: false, // its day had nothing on it before, so the phone's dot for that day pops in
+  openTasks: [], // every task not done yet, whatever its day (few, so always fetched whole)
+  doneByDate: new Map(), // 'YYYY-MM-DD' -> tasks marked done on that day
+  doneOpen: false, // the folded "N done" row is opened on the day on screen
   pushReady: false, // this phone is set up to receive reminders
   started: false,
 };
@@ -49,7 +52,15 @@ function monthCells(year, month) {
 
 const escapeHTML = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const eventCount = (n) => (n === 0 ? 'אין אירועים' : n === 1 ? 'אירוע אחד' : `${n} אירועים`);
+const taskCount = (n) => (n === 1 ? 'משימה אחת' : `${n} משימות`);
 const byTime = (a, b) => (a.time ?? '').localeCompare(b.time ?? '') || a.title.localeCompare(b.title, 'he');
+
+// Tasks: very urgent first, then urgent, then regular; within each, in the order written.
+const PRIORITY_NAMES = ['רגיל', 'דחוף', 'דחוף מאוד'];
+const byPriority = (a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt);
+// The day a task shows on: the day it was marked done; while open, its own day - or today, once
+// that day has passed. Nothing is rewritten at night; an open task simply shows on today.
+const shownOn = (task, today = todayISO()) => task.doneOn ?? (task.date < today ? today : task.date);
 
 // Kinds are told apart by symbol and word, never by color alone.
 const KIND_NAMES = { meeting: 'פגישה', work: 'עבודה', study: 'לימודים', fun: 'בילוי', medical: 'רפואי', workout: 'אימון', other: 'אחר' };
@@ -67,10 +78,14 @@ const icon = {
   medical: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3h5v6.5H21v5h-6.5V21h-5v-6.5H3v-5h6.5z"/></svg>',
   workout: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5v11M17.5 6.5v11M3 9.5v5M21 9.5v5M6.5 12h11"/></svg>',
   other: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
+  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  circle: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
   repeat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></svg>',
 };
 
 const sheet = createSheet();
+const taskSheet = createTaskSheet();
 
 // A short note that rises above the bottom bar after saving or deleting, then goes away.
 const toast = document.createElement('div');
@@ -79,8 +94,8 @@ toast.setAttribute('role', 'status');
 document.body.append(toast);
 let toastTimer;
 
-function showToast(text) {
-  toast.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>${text}`;
+function showToast(text, { ok = true } = {}) {
+  toast.innerHTML = `${ok ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' : ''}${text}`;
   replay(toast, 'is-on');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove('is-on'), 2200);
@@ -207,16 +222,33 @@ function isKnown(date) {
 }
 
 async function fetchRange(from, to) {
-  const events = await data.listEvents(from, to);
+  const version = taskVersion;
+  const [events, tasks] = await Promise.all([data.listEvents(from, to), data.listTasks(from, to)]);
   for (const date of [...state.byDate.keys()]) if (date >= from && date <= to) state.byDate.delete(date);
   for (const ev of events) {
     if (!state.byDate.has(ev.date)) state.byDate.set(ev.date, []);
     state.byDate.get(ev.date).push(ev);
   }
   for (const list of state.byDate.values()) list.sort(byTime);
+  // A task was changed on screen while this was on its way: the answer may be older than the
+  // screen, so the tasks in it are dropped and fetched again once the change is saved.
+  if (version !== taskVersion) tasksStale = true;
+  else placeTasks(tasks, from, to);
 }
 
-const rangeSignature = (from, to) => JSON.stringify([...state.byDate].filter(([date]) => date >= from && date <= to).sort());
+function placeTasks(tasks, from, to) {
+  state.openTasks = tasks.filter((t) => !t.doneOn);
+  for (const date of [...state.doneByDate.keys()]) if (date >= from && date <= to) state.doneByDate.delete(date);
+  for (const task of tasks) if (task.doneOn) putTask(task);
+}
+
+const inRange = (from, to) => ([date]) => date >= from && date <= to;
+const rangeSignature = (from, to) => JSON.stringify([
+  todayISO(), // after midnight, open tasks move on to the new today
+  state.openTasks,
+  [...state.byDate].filter(inRange(from, to)).sort(),
+  [...state.doneByDate].filter(inRange(from, to)).sort(),
+]);
 
 async function load({ quiet = false } = {}) {
   const token = ++loadToken;
@@ -295,7 +327,7 @@ function removeSeriesFromCache(seriesId) {
 // Put a saved event into the cache, wherever it was before. Returns whether its day was free
 // until now (checked before the event itself is moved, so editing it in place doesn't count).
 function placeEvent(ev) {
-  const dayWasFree = !state.byDate.get(ev.date)?.length;
+  const dayWasFree = !state.byDate.get(ev.date)?.length && !openTaskCounts().get(ev.date);
   removeFromCache(ev.id);
   if (!state.byDate.has(ev.date)) state.byDate.set(ev.date, []);
   state.byDate.get(ev.date).push(ev);
@@ -318,6 +350,72 @@ function defaultDate() {
   if (state.view === 'day') return state.date;
   const today = todayISO();
   return today.startsWith(monthKey(state.year, state.month)) ? today : `${monthKey(state.year, state.month)}-01`;
+}
+
+// ---------- tasks in the cache
+
+// Every change to a task counts up before and after it's saved; a fetch that started in between
+// is older than the screen (see fetchRange).
+let taskVersion = 0;
+let taskWrites = 0;
+let tasksStale = false;
+
+async function taskWrite(write) {
+  taskVersion++;
+  taskWrites++;
+  try {
+    return await write();
+  } finally {
+    taskVersion++;
+    taskWrites--;
+    if (!taskWrites && tasksStale) {
+      tasksStale = false;
+      load({ quiet: true });
+    }
+  }
+}
+
+function findTask(id) {
+  return state.openTasks.find((t) => t.id === id)
+    ?? [...state.doneByDate.values()].flat().find((t) => t.id === id) ?? null;
+}
+
+function removeTask(id) {
+  state.openTasks = state.openTasks.filter((t) => t.id !== id);
+  for (const [date, list] of state.doneByDate) {
+    const kept = list.filter((t) => t.id !== id);
+    if (kept.length) state.doneByDate.set(date, kept);
+    else state.doneByDate.delete(date);
+  }
+}
+
+// Put a task where it belongs now: with the open ones, or under the day it was done on.
+function putTask(task) {
+  removeTask(task.id);
+  if (!task.doneOn) state.openTasks.push(task);
+  else {
+    if (!state.doneByDate.has(task.doneOn)) state.doneByDate.set(task.doneOn, []);
+    state.doneByDate.get(task.doneOn).push(task);
+  }
+}
+
+function tasksOn(date) {
+  const today = todayISO();
+  return {
+    open: state.openTasks.filter((t) => shownOn(t, today) === date).sort(byPriority),
+    done: [...(state.doneByDate.get(date) ?? [])].sort(byPriority),
+  };
+}
+
+// How many open tasks each day shows (only today and the days ahead can have any).
+function openTaskCounts() {
+  const today = todayISO();
+  const counts = new Map();
+  for (const t of state.openTasks) {
+    const day = shownOn(t, today);
+    counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  return counts;
 }
 
 // ---------- screens
@@ -344,6 +442,15 @@ root.addEventListener('click', (e) => {
     const ev = findEvent(target.dataset.id);
     if (ev) sheet.open({ event: ev });
   }
+  else if (action === 'toggle-task') toggleTask(target);
+  else if (action === 'edit-task') {
+    const task = findTask(target.dataset.id);
+    if (task && !isUnsaved(task)) taskSheet.open(task);
+  }
+  else if (action === 'fold-done') {
+    state.doneOpen = !state.doneOpen;
+    renderTasks();
+  }
 });
 
 // After deleting, the row slides away before the list closes the gap.
@@ -354,7 +461,7 @@ function showDeleted(id) {
   setTimeout(renderContent, 240);
 }
 
-const renderContent = () => (state.view === 'day' ? renderAgenda() : renderGrid());
+const renderContent = () => (state.view === 'day' ? (renderTasks(), renderAgenda()) : renderGrid());
 const dayTitle = (date) => `יום ${DAY_NAMES[fromISO(date).getDay()]}`;
 
 const dockHTML = `
@@ -467,18 +574,21 @@ function renderGrid(direction = 0) {
   const focused = document.activeElement?.dataset?.date;
   const today = todayISO();
   const skeleton = state.loading && !state.loaded.has(monthKey(state.year, state.month));
+  const openCounts = openTaskCounts();
 
   const html = monthCells(state.year, state.month).map((cell) => {
     const events = state.byDate.get(cell.iso) ?? [];
+    const tasks = skeleton && cell.inMonth ? 0 : openCounts.get(cell.iso) ?? 0;
     const isToday = cell.iso === today;
-    const label = `${isToday ? 'היום, ' : ''}יום ${DAY_NAMES[cell.weekday]}, ${cell.day} ב${MONTHS[cell.month]}, ${eventCount(events.length)}`;
+    const label = `${isToday ? 'היום, ' : ''}יום ${DAY_NAMES[cell.weekday]}, ${cell.day} ב${MONTHS[cell.month]}, ${eventCount(events.length)}`
+      + (tasks ? `, ${tasks === 1 ? 'משימה פתוחה אחת' : `${tasks} משימות פתוחות`}` : '');
     const isNew = (ev) => (ev.id === state.highlight ? ' is-new' : '');
     // On the phone a single dot says the day isn't free, however many events it has. It pops in
     // only when the day has just stopped being free; a second event doesn't move it.
     const dotIsNew = state.highlightDot && events.some((ev) => ev.id === state.highlight);
     const marks = skeleton && cell.inMonth
       ? '<span class="skel"></span>'
-      : events.length ? `<i class="${dotIsNew ? 'is-new' : ''}"></i>` : '';
+      : events.length || tasks ? `<i class="${dotIsNew ? 'is-new' : ''}"></i>` : ''; // an open task makes the day busy too
     const chips = skeleton && cell.inMonth
       ? '<span class="skel"></span>'
       : events.map((ev) => `
@@ -487,7 +597,7 @@ function renderGrid(direction = 0) {
           </span>`).join(''); // all of them; fitChips keeps what fits the square
     return `
       <button class="day${cell.inMonth ? '' : ' is-out'}${isToday ? ' is-today' : ''}" data-action="open-day" data-date="${cell.iso}" aria-label="${label}">
-        <span class="num">${cell.day}</span>
+        <span class="day-top"><span class="num">${cell.day}</span>${tasks ? `<span class="tmark" aria-hidden="true">${icon.circle}${taskCount(tasks)}</span>` : ''}</span>
         <span class="marks" aria-hidden="true">${marks}</span>
         <span class="chips" aria-hidden="true">${chips}</span>
       </button>`;
@@ -603,11 +713,27 @@ function renderDay(direction) {
         </div>
         ${bannerHTML}
         <div class="push-card" hidden></div>
+        <div class="tasks-block view-enter">
+          <h2 class="section-label" id="tasks-label">משימות<span class="tasks-count"></span></h2>
+          <section class="tasks-card" aria-labelledby="tasks-label">
+            <ol class="task-list"></ol>
+            ${quickAddHTML}
+          </section>
+          <h2 class="section-label">אירועים</h2>
+        </div>
         <section class="agenda-card view-enter" aria-label="האירועים של היום"><div class="agenda"></div></section>
         ${dockHTML}
       </div>`;
     root.querySelector('.day-title').focus({ preventScroll: true });
     renderPushCard();
+    quickAdd = setupQuickAdd(root.querySelector('.quick-add'));
+    tasksDay = state.date;
+  }
+  // Another day: what was half typed for the previous one doesn't come along.
+  if (tasksDay !== state.date) {
+    tasksDay = state.date;
+    state.doneOpen = false;
+    quickAdd.clear();
   }
   const isToday = state.date === todayISO();
   root.querySelector('.back-label').textContent = MONTHS[state.month];
@@ -615,7 +741,212 @@ function renderDay(direction) {
   root.querySelector('.day-title').innerHTML = `${dayTitle(state.date)}${isToday ? ' <span class="today-pill">היום</span>' : ''}`;
   root.querySelector('.day-date').textContent = formatDate(state.date);
   animate(root.querySelector('.day-head'), direction);
+  renderTasks(direction);
   renderAgenda(direction);
+}
+
+// ----- tasks in the day view
+
+let quickAdd = null; // the "new task" line; built once with the day screen, never redrawn
+let tasksDay = null; // the day the tasks section was last set up for
+let settleTimer;
+let unsavedIds = 0;
+const busyTasks = new Set(); // marked done or undone, still on its way to the server
+const isUnsaved = (task) => task.id.startsWith('new-');
+
+const quickAddHTML = `
+  <form class="quick-add" novalidate>
+    <div class="qa-line">
+      <span class="qa-plus" aria-hidden="true">${icon.plus}</span>
+      <input class="qa-input" maxlength="200" autocomplete="off" enterkeyhint="done" placeholder="משימה חדשה…" aria-label="משימה חדשה">
+      <button type="submit" class="btn btn-primary btn-small qa-add" hidden>הוסף</button>
+    </div>
+    <div class="qa-picks" role="group" aria-label="דחיפות" hidden>
+      <button type="button" class="kp qp" data-priority="1" aria-pressed="false"><span class="pick-check">${icon.check}</span>דחוף</button>
+      <button type="button" class="kp qp" data-priority="2" aria-pressed="false"><span class="pick-check">${icon.check}</span>דחוף מאוד</button>
+    </div>
+    <p class="qa-error" role="alert"></p>
+  </form>`;
+
+// Write and confirm, no window. The urgency buttons show up once something is typed; none
+// chosen means regular. After adding, the line empties and stays ready for the next one.
+function setupQuickAdd(form) {
+  const input = form.querySelector('.qa-input');
+  const addButton = form.querySelector('.qa-add');
+  const picksBox = form.querySelector('.qa-picks');
+  const picks = [...form.querySelectorAll('.qp')];
+  const error = form.querySelector('.qa-error');
+  const picked = () => Number(picks.find((b) => b.getAttribute('aria-pressed') === 'true')?.dataset.priority ?? 0);
+  const setPicked = (priority) => picks.forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.priority) === priority)));
+  const sync = () => {
+    const typing = Boolean(input.value.trim());
+    addButton.hidden = !typing;
+    picksBox.hidden = !typing;
+    if (!typing) setPicked(0);
+  };
+
+  input.addEventListener('input', () => {
+    error.textContent = '';
+    sync();
+  });
+  // Enter while the phone is still settling a word only settles the word.
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.isComposing) e.preventDefault(); });
+  // Tapping these must not take the typing away from the line, so the keyboard stays open.
+  for (const button of [...picks, addButton]) button.addEventListener('mousedown', (e) => e.preventDefault());
+  picks.forEach((b) => b.addEventListener('click', () => {
+    const priority = Number(b.dataset.priority);
+    setPicked(priority === picked() ? 0 : priority);
+  }));
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const title = input.value.trim();
+    if (!title) return;
+    addTask(title, picked());
+    input.value = '';
+    sync();
+  });
+
+  return {
+    clear() {
+      input.value = '';
+      error.textContent = '';
+      sync();
+    },
+    // Saving failed: what was typed comes back, unless something new is already being typed.
+    restore(title, priority, message) {
+      if (!input.value.trim()) {
+        input.value = title;
+        sync();
+        setPicked(priority);
+      }
+      error.textContent = message;
+    },
+  };
+}
+
+// Shown at once; saved on the way. If saving fails the row goes and the text returns to the line.
+function addTask(title, priority) {
+  const date = state.date;
+  const unsaved = { id: `new-${++unsavedIds}`, title, date, priority, doneOn: null, createdAt: new Date().toISOString() };
+  state.openTasks.push(unsaved);
+  renderTasks(0, unsaved.id);
+  taskWrite(() => data.addTask({ title, date, priority }))
+    .then((saved) => {
+      removeTask(unsaved.id);
+      putTask(saved);
+      // Swap the id in place rather than redrawing, so the row's settling motion isn't cut short.
+      root.querySelectorAll(`[data-id="${unsaved.id}"]`).forEach((el) => { el.dataset.id = saved.id; });
+    })
+    .catch((error) => {
+      removeTask(unsaved.id);
+      if (data.isAuthError(error)) return renderLogin();
+      renderTasks();
+      if (state.view === 'day' && state.date === date) quickAdd?.restore(title, priority, 'המשימה לא נשמרה. נסה שוב');
+      else showToast('המשימה לא נשמרה', { ok: false });
+    });
+}
+
+// The check and the line show at once, where the task is; it moves to its place a moment later,
+// so the next task doesn't slide under the finger.
+function toggleTask(button) {
+  const task = findTask(button.dataset.id);
+  if (!task || isUnsaved(task) || busyTasks.has(task.id)) return;
+  const before = task;
+  const after = { ...task, doneOn: task.doneOn ? null : shownOn(task) };
+  busyTasks.add(task.id);
+  putTask(after);
+  button.closest('.task')?.classList.toggle('is-done', Boolean(after.doneOn));
+  button.setAttribute('aria-checked', String(Boolean(after.doneOn)));
+  renderTaskCount();
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => renderTasks(), 700);
+  if (!after.doneOn && shownOn(after) !== state.date) showToast('המשימה חזרה להיום');
+
+  taskWrite(() => data.updateTask(task.id, { doneOn: after.doneOn }))
+    .catch((error) => {
+      if (data.isAuthError(error)) return renderLogin();
+      putTask(before);
+      renderTasks();
+      showToast('לא נשמר. נסה שוב', { ok: false });
+    })
+    .finally(() => busyTasks.delete(task.id));
+}
+
+function taskCountText(date) {
+  const { open, done } = tasksOn(date);
+  const total = open.length + done.length;
+  if (!total) return '';
+  if (open.length) return ` · ${open.length} מתוך ${total} פתוחות`;
+  if (date >= todayISO()) return ' · הכל בוצע';
+  return done.length === 1 ? ' · אחת בוצעה' : ` · ${done.length} בוצעו`;
+}
+
+function renderTaskCount() {
+  const label = root.querySelector('.tasks-count');
+  if (label) label.textContent = state.loading && !isKnown(state.date) ? '' : taskCountText(state.date);
+}
+
+function taskRow(task, fresh) {
+  const done = Boolean(task.doneOn);
+  const title = escapeHTML(task.title);
+  const from = task.date !== state.date ? `מ-${formatDate(task.date).slice(0, 5)}` : ''; // carried on from an earlier day
+  const priority = task.priority ? PRIORITY_NAMES[task.priority] : '';
+  return `
+    <li class="task${done ? ' is-done' : ''}${task.id === fresh ? ' is-new' : ''}" data-id="${task.id}">
+      <button class="task-check" data-action="toggle-task" data-id="${task.id}" role="checkbox" aria-checked="${done}" aria-label="בוצע: ${title}">
+        <span class="ring">${icon.check}</span>
+      </button>
+      <button class="task-name" data-action="edit-task" data-id="${task.id}" aria-label="עריכת משימה: ${title}${priority ? `, ${priority}` : ''}${from ? `, ${from}` : ''}">
+        <span class="task-text"><span class="task-title">${title}</span>${from ? `<small class="task-from">${from}</small>` : ''}</span>
+        ${priority ? `<span class="prio${task.priority === 2 ? ' is-top' : ''}">${priority}</span>` : ''}
+      </button>
+    </li>`;
+}
+
+function renderTasks(direction = 0, fresh = null) {
+  const block = root.querySelector('.tasks-block');
+  if (!block) return;
+  clearTimeout(settleTimer);
+  const list = block.querySelector('.task-list');
+  const past = state.date < todayISO();
+  const skeleton = state.loading && !isKnown(state.date);
+  const { open, done } = tasksOn(state.date);
+
+  // A past day takes no new tasks - they would move to today at once. It keeps what was done on it.
+  block.hidden = past && (skeleton || !done.length);
+  block.querySelector('.quick-add').hidden = past;
+  renderTaskCount();
+
+  const focused = document.activeElement?.closest?.('.task-list [data-action]');
+  const refocus = focused && `[data-action="${focused.dataset.action}"]${focused.dataset.id ? `[data-id="${focused.dataset.id}"]` : ''}`;
+  if (skeleton) {
+    list.innerHTML = [58, 42].map((w) => `
+      <li class="task" aria-hidden="true"><span class="task-check"><span class="ring"></span></span><span class="skel" style="width:${w}%"></span></li>`).join('');
+  } else {
+    // More than three done fold into one row, which opens on a tap.
+    const folded = done.length > 3 && !state.doneOpen;
+    const rows = open.map((t) => taskRow(t, fresh));
+    if (done.length > 3) {
+      rows.push(`
+        <li class="task-fold">
+          <button data-action="fold-done" aria-expanded="${!folded}">
+            <span class="ring is-filled">${icon.check}</span>${done.length} בוצעו<span class="fold-arrow">${icon.chevron}</span>
+          </button>
+        </li>`);
+    }
+    if (!folded) rows.push(...done.map((t) => taskRow(t, fresh)));
+    list.innerHTML = rows.join('');
+  }
+  if (refocus) list.querySelector(refocus)?.focus();
+  animate(list, direction);
+}
+
+// After deleting, the row slides away before the list closes the gap.
+function showTaskDeleted(id) {
+  const row = root.querySelector(`.task[data-id="${id}"]`);
+  if (!row) return renderTasks();
+  row.classList.add('is-leaving');
+  setTimeout(() => renderTasks(), 240);
 }
 
 function renderAgenda(direction = 0) {
@@ -733,6 +1064,114 @@ function renderPushCard() {
     </button>`;
 }
 
+// ---------- what both sheets share: a question in place of the buttons, a save that keeps what
+// was typed when it fails, staying above the phone's keyboard, and sliding away when closed
+
+function sheetKit(el, { setBusy }) {
+  const $ = (selector) => el.querySelector(selector);
+  const formError = $('.form-error');
+  const mainActions = $('[data-main-actions]');
+  const choiceBox = $('[data-choice]');
+  const choiceButtons = $('[data-choice-buttons]');
+  let closing = false;
+  let settleChoice = null;
+
+  // A question inside the sheet, in place of the save/cancel buttons. Resolves with the value
+  // of the chosen button, or null for cancel.
+  function ask(text, options) {
+    $('[data-choice-text]').textContent = text;
+    choiceButtons.innerHTML = options.map((o, i) => `<button type="button" class="btn btn-${o.kind}" data-i="${i}">${o.label}</button>`).join('');
+    choiceButtons.classList.toggle('is-stacked', options.length > 2);
+    formError.textContent = '';
+    mainActions.hidden = true;
+    choiceBox.hidden = false;
+    choiceButtons.querySelector('.btn-ghost')?.focus();
+    return new Promise((resolve) => {
+      settleChoice = resolve;
+      choiceButtons.onclick = (e) => {
+        const button = e.target.closest('[data-i]');
+        if (!button) return;
+        const { value } = options[button.dataset.i];
+        settleChoice = null;
+        if (value === null) hideChoice();
+        resolve(value);
+      };
+    });
+  }
+  function hideChoice() {
+    choiceBox.hidden = true;
+    mainActions.hidden = false;
+    settleChoice?.(null);
+    settleChoice = null;
+  }
+
+  // Runs a save or delete; on failure what was typed stays, with a message.
+  async function perform(task, failMessage) {
+    setBusy(true);
+    try {
+      await task();
+    } catch (err) {
+      if (data.isAuthError(err)) {
+        close();
+        renderLogin();
+        return;
+      }
+      hideChoice();
+      setBusy(false);
+      formError.textContent = failMessage;
+    }
+  }
+
+  // On phones the keyboard covers the bottom of the screen; lift the sheet above it.
+  const vv = window.visualViewport;
+  const onViewport = () => {
+    const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    el.style.setProperty('--keyboard', `${keyboard}px`);
+    el.classList.toggle('has-keyboard', keyboard > 120); // a real keyboard covers the home bar: the buttons can sit lower
+  };
+  const trackKeyboard = (on) => {
+    if (!vv) return;
+    const method = on ? 'addEventListener' : 'removeEventListener';
+    vv[method]('resize', onViewport);
+    vv[method]('scroll', onViewport);
+    if (on) onViewport();
+    else {
+      el.style.removeProperty('--keyboard');
+      el.classList.remove('has-keyboard');
+    }
+  };
+
+  function show() {
+    closing = false;
+    el.classList.remove('is-closing');
+    el.showModal();
+    trackKeyboard(true);
+  }
+
+  function close() {
+    if (!el.open || closing) return;
+    closing = true;
+    hideChoice();
+    el.classList.add('is-closing');
+    const onEnd = (e) => { if (e.target === el) done(); };
+    const done = () => {
+      if (!closing) return;
+      closing = false;
+      el.removeEventListener('animationend', onEnd);
+      el.classList.remove('is-closing');
+      el.close();
+      trackKeyboard(false);
+    };
+    el.addEventListener('animationend', onEnd);
+    setTimeout(done, 260);
+  }
+
+  el.addEventListener('cancel', (e) => { e.preventDefault(); close(); }); // Esc
+  el.addEventListener('click', (e) => { if (e.target === el) close(); }); // tap outside the sheet
+
+  return { ask, hideChoice, perform, show, close };
+}
+
 // ---------- event sheet: add or edit an event, one-off or weekly
 
 function createSheet() {
@@ -822,16 +1261,12 @@ function createSheet() {
   const formError = $('.form-error');
   const saveButton = $('[data-save]');
   const deleteButton = $('[data-delete]');
-  const mainActions = $('[data-main-actions]');
-  const choiceBox = $('[data-choice]');
   const choiceButtons = $('[data-choice-buttons]');
   const picks = [...el.querySelectorAll('[data-wd]')];
   const kindPicks = [...el.querySelectorAll('[data-kind]')];
   const pickedKind = () => kindPicks.find((b) => b.getAttribute('aria-pressed') === 'true')?.dataset.kind ?? null;
   const setKind = (kind) => kindPicks.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.kind === kind)));
   let editing = null;
-  let closing = false;
-  let settleChoice = null;
 
   const pickedDays = () => picks.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => Number(b.dataset.wd));
   const setPick = (button, on) => button.setAttribute('aria-pressed', String(on));
@@ -868,6 +1303,7 @@ function createSheet() {
     saveButton.textContent = busy ? 'שומר…' : 'שמור';
     choiceButtons.querySelectorAll('button').forEach((b) => { b.disabled = busy; });
   };
+  const { ask, hideChoice, perform, show: showSheet, close } = sheetKit(el, { setBusy });
 
   for (const input of [inputs.date, inputs.time, inputs.end, inputs.until]) {
     input.addEventListener('input', sync);
@@ -886,54 +1322,6 @@ function createSheet() {
   kindPicks.forEach((b) => b.addEventListener('click', () => setKind(b.dataset.kind === pickedKind() ? null : b.dataset.kind)));
   inputs.title.addEventListener('input', () => setTitleError(''));
   $('[data-cancel]').addEventListener('click', close);
-  el.addEventListener('cancel', (e) => { e.preventDefault(); close(); }); // Esc
-  el.addEventListener('click', (e) => { if (e.target === el) close(); }); // tap outside the sheet
-
-  // A question inside the sheet, in place of the save/cancel buttons. Resolves with the value
-  // of the chosen button, or null for cancel.
-  function ask(text, options) {
-    $('[data-choice-text]').textContent = text;
-    choiceButtons.innerHTML = options.map((o, i) => `<button type="button" class="btn btn-${o.kind}" data-i="${i}">${o.label}</button>`).join('');
-    choiceButtons.classList.toggle('is-stacked', options.length > 2);
-    formError.textContent = '';
-    mainActions.hidden = true;
-    choiceBox.hidden = false;
-    choiceButtons.querySelector('.btn-ghost')?.focus();
-    return new Promise((resolve) => {
-      settleChoice = resolve;
-      choiceButtons.onclick = (e) => {
-        const button = e.target.closest('[data-i]');
-        if (!button) return;
-        const { value } = options[button.dataset.i];
-        settleChoice = null;
-        if (value === null) hideChoice();
-        resolve(value);
-      };
-    });
-  }
-  function hideChoice() {
-    choiceBox.hidden = true;
-    mainActions.hidden = false;
-    settleChoice?.(null);
-    settleChoice = null;
-  }
-
-  // Runs a save or delete; on failure what was typed stays, with a message.
-  async function perform(task, failMessage) {
-    setBusy(true);
-    try {
-      await task();
-    } catch (err) {
-      if (data.isAuthError(err)) {
-        close();
-        renderLogin();
-        return;
-      }
-      hideChoice();
-      setBusy(false);
-      fail(failMessage);
-    }
-  }
 
   function readFields() {
     formError.textContent = '';
@@ -1046,25 +1434,6 @@ function createSheet() {
     }, 'המחיקה נכשלה, נסה שוב');
   });
 
-  // On phones the keyboard covers the bottom of the screen; lift the sheet above it.
-  const vv = window.visualViewport;
-  const onViewport = () => {
-    const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-    el.style.setProperty('--keyboard', `${keyboard}px`);
-    el.classList.toggle('has-keyboard', keyboard > 120); // a real keyboard covers the home bar: the buttons can sit lower
-  };
-  const trackKeyboard = (on) => {
-    if (!vv) return;
-    const method = on ? 'addEventListener' : 'removeEventListener';
-    vv[method]('resize', onViewport);
-    vv[method]('scroll', onViewport);
-    if (on) onViewport();
-    else {
-      el.style.removeProperty('--keyboard');
-      el.classList.remove('has-keyboard');
-    }
-  };
-
   function open({ date, event = null }) {
     editing = event;
     $('#sheet-title').textContent = event ? 'עריכת אירוע' : 'אירוע חדש';
@@ -1086,31 +1455,161 @@ function createSheet() {
     hideChoice();
     setBusy(false);
     sync();
-    closing = false;
-    el.classList.remove('is-closing');
-    el.showModal();
-    trackKeyboard(true);
+    showSheet();
     // A new event starts with typing; an existing one may just be deleted, so don't pop the keyboard.
     if (event) $('#sheet-title').focus();
     else inputs.title.focus();
   }
 
-  function close() {
-    if (!el.open || closing) return;
-    closing = true;
+  return { open };
+}
+
+// ---------- task sheet: rename, move to another day, change urgency, delete
+
+function createTaskSheet() {
+  const el = document.createElement('dialog');
+  el.className = 'sheet';
+  el.setAttribute('aria-labelledby', 'task-sheet-title');
+  el.innerHTML = `
+    <form class="sheet-form" novalidate>
+      <div class="sheet-grip" aria-hidden="true"></div>
+      <div class="sheet-head">
+        <h2 class="display sheet-title" id="task-sheet-title" tabindex="-1">עריכת משימה</h2>
+        <button type="button" class="link-btn is-danger" data-delete>מחק</button>
+      </div>
+      <p class="series-note" data-done-note hidden></p>
+      <div class="field">
+        <label for="task-title">שם</label>
+        <input class="input" id="task-title" maxlength="200" autocomplete="off" enterkeyhint="done" aria-describedby="task-title-error">
+        <p class="field-error" id="task-title-error"></p>
+      </div>
+      <div class="field" data-date-field>
+        <label for="task-date">יום</label>
+        <div class="picker"><span class="picker-value" data-show="date"></span><input id="task-date" type="date" required></div>
+      </div>
+      <div class="field">
+        <span class="field-label" id="task-priority-label">דחיפות</span>
+        <div class="kind-picks" role="group" aria-labelledby="task-priority-label">
+          ${PRIORITY_NAMES.map((name, i) => `<button type="button" class="kp" data-priority="${i}" aria-pressed="false"><span class="pick-check">${icon.check}</span>${name}</button>`).join('')}
+        </div>
+      </div>
+      <div class="sheet-footer">
+        <p class="form-error" role="alert"></p>
+        <div class="sheet-actions" data-main-actions>
+          <button type="submit" class="btn btn-primary" data-save>שמור</button>
+          <button type="button" class="btn btn-ghost" data-cancel>ביטול</button>
+        </div>
+        <div class="confirm" data-choice hidden>
+          <p data-choice-text></p>
+          <div class="choice-buttons" data-choice-buttons></div>
+        </div>
+      </div>
+    </form>`;
+  document.body.append(el);
+
+  const $ = (selector) => el.querySelector(selector);
+  const titleInput = $('#task-title');
+  const dateInput = $('#task-date');
+  const titleError = $('#task-title-error');
+  const formError = $('.form-error');
+  const saveButton = $('[data-save]');
+  const deleteButton = $('[data-delete]');
+  const priorityPicks = [...el.querySelectorAll('[data-priority]')];
+  const picked = () => Number(priorityPicks.find((b) => b.getAttribute('aria-pressed') === 'true')?.dataset.priority ?? 0);
+  const setPicked = (priority) => priorityPicks.forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.priority) === priority)));
+  const setBusy = (busy) => {
+    saveButton.disabled = busy;
+    saveButton.textContent = busy ? 'שומר…' : 'שמור';
+    $('[data-choice-buttons]').querySelectorAll('button').forEach((b) => { b.disabled = busy; });
+  };
+  const { ask, hideChoice, perform, show: showSheet, close } = sheetKit(el, { setBusy });
+  let editing = null;
+  let shownDate = null; // the day the task shows on now; the date is sent only when it changes
+
+  const showDate = () => {
+    const span = $('[data-show="date"]');
+    span.textContent = dateInput.value ? formatLong(dateInput.value) : 'בחר יום';
+    span.classList.toggle('is-placeholder', !dateInput.value);
+  };
+  const setTitleError = (message) => {
+    titleError.textContent = message;
+    titleInput.classList.toggle('is-invalid', Boolean(message));
+    titleInput.setAttribute('aria-invalid', message ? 'true' : 'false');
+  };
+  const fail = (message) => { formError.textContent = message; };
+
+  dateInput.addEventListener('input', showDate);
+  dateInput.addEventListener('change', showDate);
+  dateInput.addEventListener('click', () => { try { dateInput.showPicker?.(); } catch { /* the browser opens its own */ } });
+  priorityPicks.forEach((b) => b.addEventListener('click', () => setPicked(Number(b.dataset.priority)))); // always exactly one
+  titleInput.addEventListener('input', () => setTitleError(''));
+  $('[data-cancel]').addEventListener('click', close);
+
+  $('form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    formError.textContent = '';
+    const title = titleInput.value.trim();
+    if (!title) {
+      setTitleError('חסר שם למשימה');
+      titleInput.focus();
+      return;
+    }
+    const fields = { title, priority: picked() };
+    // A done task stays where it was done; only an open one moves, and only to today or later.
+    if (!editing.doneOn && dateInput.value !== shownDate) {
+      if (!dateInput.value) return fail('חסר יום');
+      if (dateInput.value < todayISO()) return fail('אפשר להעביר רק להיום או ליום שעוד לא עבר');
+      fields.date = dateInput.value;
+    }
+    const { id } = editing;
+    perform(async () => {
+      const saved = await taskWrite(() => data.updateTask(id, fields));
+      putTask(saved);
+      close();
+      const moved = shownOn(saved) !== state.date;
+      showToast(moved ? `המשימה הועברה ל${formatLong(shownOn(saved))}` : 'המשימה נשמרה');
+      if (moved) showTaskDeleted(id); // it leaves this day
+      else renderTasks(0, id);
+    }, 'השמירה נכשלה, נסה שוב');
+  });
+
+  deleteButton.addEventListener('click', async () => {
+    const { id } = editing;
+    const sure = await ask('למחוק את המשימה?', [
+      { label: 'מחק', value: true, kind: 'danger' },
+      { label: 'ביטול', value: null, kind: 'ghost' },
+    ]);
+    if (!sure) {
+      deleteButton.focus();
+      return;
+    }
+    perform(async () => {
+      await taskWrite(() => data.deleteTask(id));
+      removeTask(id);
+      close();
+      showToast('המשימה נמחקה');
+      showTaskDeleted(id);
+    }, 'המחיקה נכשלה, נסה שוב');
+  });
+
+  function open(task) {
+    editing = task;
+    shownDate = task.doneOn ? null : shownOn(task);
+    titleInput.value = task.title;
+    dateInput.value = shownDate ?? '';
+    dateInput.min = todayISO();
+    showDate();
+    $('[data-date-field]').hidden = Boolean(task.doneOn);
+    const note = $('[data-done-note]');
+    note.hidden = !task.doneOn;
+    if (task.doneOn) note.innerHTML = `${icon.check}בוצעה ב-${formatDate(task.doneOn).slice(0, 5)}`;
+    setPicked(task.priority);
+    setTitleError('');
+    formError.textContent = '';
     hideChoice();
-    el.classList.add('is-closing');
-    const onEnd = (e) => { if (e.target === el) done(); };
-    const done = () => {
-      if (!closing) return;
-      closing = false;
-      el.removeEventListener('animationend', onEnd);
-      el.classList.remove('is-closing');
-      el.close();
-      trackKeyboard(false);
-    };
-    el.addEventListener('animationend', onEnd);
-    setTimeout(done, 260);
+    setBusy(false);
+    showSheet();
+    $('#task-sheet-title').focus(); // it may just be deleted or moved, so don't pop the keyboard
   }
 
   return { open };

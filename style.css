@@ -332,6 +332,10 @@ label {
 
 .day.is-out .marks i { opacity: .4; }
 
+/* The day's number, and on the computer its open tasks beside it; on the phone the dot says it. */
+.day-top { display: contents; }
+.tmark { display: none; }
+
 .chips { display: none; }
 
 .skel {
@@ -548,6 +552,232 @@ button.row:focus-visible { outline-offset: -2px; }
   font-family: var(--font-display);
   font-size: 22px;
 }
+
+/* ---------- tasks in the day view: above the events, told apart by symbol and word, not color */
+
+.section-label {
+  margin: 0 8px 8px;
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.tasks-count { font-weight: 500; }
+
+.tasks-card {
+  margin-bottom: 22px;
+  overflow: hidden;
+  border: 1px solid rgb(228 220 205 / .7);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+}
+
+.task-list { margin: 0; padding: 4px 0 0; list-style: none; }
+.task-list:empty { display: none; }
+.task-list > li + li { border-top: 1px solid var(--line); }
+
+.task { display: flex; align-items: stretch; }
+.task.is-new { animation: settle .6s var(--ease-out); }
+.task.is-leaving { animation: leave .24s ease-in forwards; }
+.task > .skel { align-self: center; height: 14px; }
+
+/* The circle: empty while open, filled with a check once done. The tap area is bigger than it. */
+.task-check {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 52px;
+  min-height: 56px;
+  margin-inline-start: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.ring {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--ink-3);
+  border-radius: 50%;
+  transition: background-color .18s, border-color .18s, transform .14s var(--ease-out);
+}
+
+.ring svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--paper);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+  transform: scale(.4);
+  transition: opacity .16s, transform .26s var(--ease-out);
+}
+
+.task.is-done .ring, .ring.is-filled { border-color: var(--teal); background: var(--teal); }
+.task.is-done .ring svg, .ring.is-filled svg { opacity: 1; transform: none; }
+.task-check:active .ring { transform: scale(.88); }
+.task-check:focus-visible { outline-offset: -4px; }
+
+.task-name {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 10px 4px 10px 20px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color .18s;
+}
+
+.task-name:active { background: var(--paper-hover); }
+.task-name:focus-visible { outline-offset: -2px; }
+
+@media (hover: hover) {
+  .task-name:hover { background: var(--paper-hover); }
+}
+
+.task-text { flex: 1; min-width: 0; }
+
+.task-title {
+  font-size: 17px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  transition: color .18s;
+}
+
+.task.is-done .task-title {
+  color: var(--ink-2);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+.task-from {
+  display: block;
+  margin-top: 1px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Urgency: a word at the far side of the row; "very urgent" also sits in a frame. */
+.prio {
+  flex: none;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.prio.is-top {
+  padding: 1px 9px;
+  border: 1.5px solid currentColor;
+  border-radius: 999px;
+}
+
+.task.is-done .prio { color: var(--ink-3); }
+
+.task-fold button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0;
+  padding-inline: 4px 18px;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.task-fold .ring { flex: none; margin-inline: 14px; } /* in line with the circles above it */
+.task-fold .fold-arrow { display: inline-flex; margin-inline-start: auto; transition: transform .2s var(--ease-out); }
+.task-fold [aria-expanded="true"] .fold-arrow { transform: rotate(180deg); }
+
+.task-fold .fold-arrow svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.task-fold button:focus-visible { outline-offset: -2px; }
+
+@media (hover: hover) {
+  .task-fold button:hover { background: var(--paper-hover); }
+}
+
+/* The "new task" line at the bottom of the card */
+.quick-add { padding: 0 12px 0 4px; }
+.task-list:not(:empty) + .quick-add { border-top: 1px solid var(--line); }
+
+.qa-line { display: flex; align-items: center; gap: 4px; min-height: 58px; }
+
+.qa-plus {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 52px;
+  color: var(--teal);
+}
+
+.qa-plus svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.qa-input {
+  flex: 1;
+  min-width: 0;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 17px; /* 16px or more keeps the iPhone from zooming in */
+}
+
+.qa-input::placeholder { color: var(--ink-3); }
+.qa-input:focus { outline: none; }
+.quick-add:focus-within .qa-plus { color: var(--teal-strong); }
+.qa-add { height: 38px; }
+
+.qa-picks { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 0 14px; padding-inline-start: 56px; animation: rise .2s var(--ease-out); }
+.kp.qp { min-height: 36px; padding: 0 14px; font-size: 14px; }
+
+/* A chosen urgency (here and in the task sheet) is filled and carries a check, not only a color. */
+.pick-check { display: none; }
+.kp[aria-pressed="true"] .pick-check { display: inline-flex; }
+
+.qa-error { margin: -4px 0 12px; padding-inline-start: 56px; color: var(--danger); font-size: 14px; }
+.qa-error:empty { display: none; }
+
+/* While typing a task on the phone, the bottom bar steps aside so it can't cover the line. */
+.shell:has(.qa-input:focus) .dock { display: none; }
 
 /* ---------- bottom bar (phone) */
 
@@ -1066,6 +1296,37 @@ html { overscroll-behavior: none; }
 
   .day .num { flex: none; width: 30px; height: 30px; font-size: 14px; }
   .marks { display: none; }
+
+  /* "N tasks" on the number's line when it fits, so the events keep their room; else just under it. */
+  .day-top {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0 6px;
+  }
+
+  .tmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding-inline-end: 4px;
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .tmark svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+  }
+
+  .day.is-out .tmark { opacity: .55; }
 
   /* The events that fit in the square's height; app.js trims the rest into "+N more". */
   .chips {
