@@ -1,4 +1,4 @@
-import * as data from './data.js?v=13';
+import * as data from './data.js?v=14';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -962,7 +962,7 @@ function renderAgenda(direction = 0) {
     agenda.innerHTML = `
       <div class="agenda-empty">
         <p>אין אירועים ביום הזה</p>
-        <button class="btn btn-primary" data-action="add">${icon.plus}הוסף</button>
+        <button class="btn btn-primary" data-action="add">${icon.plus}הוסף אירוע</button>
       </div>`;
   } else {
     agenda.innerHTML = `<ol class="rows">${events.map((ev) => {
