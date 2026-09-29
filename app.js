@@ -1,4 +1,4 @@
-import * as data from './data.js?v=14';
+import * as data from './data.js?v=15';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -556,7 +556,7 @@ function renderMonth(direction, returningTo) {
         </section>
         ${dockHTML}
       </div>`;
-    enableSwipe(root.querySelector('.month-card'));
+    enableSwipe(root.querySelector('.month-card'), shiftMonth);
     renderPushCard();
     gridSize.disconnect();
     gridSize.observe(root.querySelector('.grid'));
@@ -676,11 +676,14 @@ function turnPage(grid, direction, paint) {
 
 // On the phone, swiping the month turns the page too. Right to left: a swipe to the right
 // brings the next month, the same way the arrows point.
-function enableSwipe(el) {
+// A quick sideways swipe turns to the next or previous page: months on the month view, days on the
+// day view. Right to left, so a swipe to the right goes forward. Not from inside a text field,
+// where a sideways drag moves the cursor.
+function enableSwipe(el, shift) {
   let start = null;
   el.addEventListener('touchstart', (e) => {
     const t = e.touches[0];
-    start = e.touches.length === 1 ? { x: t.clientX, y: t.clientY, at: Date.now() } : null;
+    start = e.touches.length === 1 && !e.target.closest('input, textarea') ? { x: t.clientX, y: t.clientY, at: Date.now() } : null;
   }, { passive: true });
   el.addEventListener('touchend', (e) => {
     if (!start) return;
@@ -689,7 +692,7 @@ function enableSwipe(el) {
     const dy = t.clientY - start.y;
     const quick = Date.now() - start.at < 800;
     start = null;
-    if (quick && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) shiftMonth(dx > 0 ? 1 : -1);
+    if (quick && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) shift(dx > 0 ? 1 : -1);
   }, { passive: true });
 }
 
@@ -725,6 +728,7 @@ function renderDay(direction) {
         ${dockHTML}
       </div>`;
     root.querySelector('.day-title').focus({ preventScroll: true });
+    enableSwipe(root.querySelector('.shell'), shiftDay);
     renderPushCard();
     quickAdd = setupQuickAdd(root.querySelector('.quick-add'));
     tasksDay = state.date;
