@@ -1,4 +1,4 @@
-import * as data from './data.js?v=16';
+import * as data from './data.js?v=17';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -134,6 +134,8 @@ function enterApp() {
     state.started = true;
     syncPush().catch(() => {}).finally(renderPushCard);
     window.addEventListener('hashchange', route);
+    // Days turn with a sideways swipe anywhere on the screen, empty space under a short day included.
+    enableSwipe(root, (delta) => { if (state.view === 'day' && root.querySelector('.shell[data-view="day"]')) shiftDay(delta); });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && root.querySelector('.shell')) load({ quiet: true });
     });
@@ -743,7 +745,6 @@ function renderDay(direction) {
         ${dockHTML}
       </div>`;
     root.querySelector('.day-title').focus({ preventScroll: true });
-    enableSwipe(root.querySelector('.shell'), shiftDay);
     renderPushCard();
     quickAdd = setupQuickAdd(root.querySelector('.quick-add'));
     tasksDay = state.date;
