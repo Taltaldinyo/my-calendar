@@ -1,4 +1,4 @@
-import * as data from './data.js?v=15';
+import * as data from './data.js?v=16';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -108,10 +108,25 @@ start();
 async function start() {
   // Safari on the iPhone only shows the pressed look of buttons when a touch listener exists.
   document.addEventListener('touchstart', () => {}, { passive: true });
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  registerServiceWorker();
   data.onSignedOut(renderLogin);
   if (await data.hasSession()) enterApp();
   else renderLogin();
+}
+
+// sw.js keeps the app's files on the phone, so it opens without waiting for the network (and offline).
+// Registered once the page has loaded, so on a first visit its downloads never compete with the page's own.
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  const register = () => navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((registration) => {
+    // A home-screen app is usually resumed, not reopened: look for a new version each time it comes back.
+    // The new version is used the next time the app opens from scratch, never in the middle of a session.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') registration.update().catch(() => {});
+    });
+  }).catch(() => {});
+  if (document.readyState === 'complete') register();
+  else window.addEventListener('load', register, { once: true });
 }
 
 function enterApp() {

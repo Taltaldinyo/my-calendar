@@ -14,17 +14,15 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="לוח השנה">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://hhpoypzgnlmkmundyvft.supabase.co" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700&family=IBM+Plex+Sans+Hebrew:wght@400;500;600&display=swap">
-  <!-- ?v= is raised on every update (here and in the two imports), so a phone never mixes old and new files -->
-  <link rel="stylesheet" href="style.css?v=15">
-  <link rel="modulepreload" href="data.js?v=15">
-  <link rel="modulepreload" href="config.js?v=15">
+  <!-- Fonts: our own copies in fonts/ (@font-face at the top of style.css). No preload - measured, it made a cold open no faster -->
+  <!-- ?v= is raised on every update (here, in the two imports, and VERSION in sw.js), so a phone never mixes old and new files -->
+  <link rel="stylesheet" href="style.css?v=16">
+  <link rel="modulepreload" href="data.js?v=16">
+  <link rel="modulepreload" href="config.js?v=16">
   <!-- Our own copy of the Supabase library. A classic script, so it runs before app.js -->
-  <script src="vendor/supabase.js?v=15"></script>
-  <script type="module" src="app.js?v=15"></script>
+  <script src="vendor/supabase.js?v=16"></script>
+  <script type="module" src="app.js?v=16"></script>
 </head>
 <body>
   <main id="app"></main>
