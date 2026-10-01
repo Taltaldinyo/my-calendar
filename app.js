@@ -1,4 +1,4 @@
-import * as data from './data.js?v=18';
+import * as data from './data.js?v=19';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -189,6 +189,9 @@ function route() {
   if (next.view === 'day') nameSquare();
   const transition = document.startViewTransition(() => {
     applyRoute(next);
+    // The transition is the entrance. Left in place, the screen's own fade-in (`rise`) would start the moment
+    // the transition ends, and the whole screen would blink: transparent, then back (opening or leaving a day).
+    skipEntrance();
     if (next.view === 'month') nameSquare();
   });
   transition.ready.catch(() => {}); // skipped (e.g. the page isn't being drawn): the screen still switches, just without motion
