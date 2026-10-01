@@ -1,4 +1,4 @@
-import * as data from './data.js?v=19';
+import * as data from './data.js?v=20';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -136,7 +136,7 @@ function enterApp() {
     syncPush().catch(() => {}).finally(renderPushCard);
     window.addEventListener('hashchange', route);
     // Days turn with a sideways swipe anywhere on the screen, empty space under a short day included.
-    enableSwipe(root, (delta) => { if (state.view === 'day' && root.querySelector('.shell[data-view="day"]')) shiftDay(delta); });
+    enableDayPaging(root);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && root.querySelector('.shell')) load({ quiet: true });
     });
@@ -203,6 +203,7 @@ function route() {
 }
 
 function applyRoute(next) {
+  resetPaging(); // a half-finished slide never outlives the screen it belonged to
   const sameView = next.view === state.view && root.querySelector(`.shell[data-view="${next.view}"]`);
   let direction = 0;
   if (sameView && next.view === 'month') direction = Math.sign(next.year * 12 + next.month - (state.year * 12 + state.month));
@@ -228,7 +229,13 @@ function shiftMonth(delta) {
 }
 
 function shiftDay(delta) {
-  const date = addDays(state.date, delta);
+  if (pager.busy) { pager.queued += delta; return; } // a tap during a slide goes on after it lands
+  goToDay(addDays(state.date, delta));
+}
+
+// Another day: slides in from the side when the day screen is up (arrows, "today"), else just switches.
+function goToDay(date) {
+  if (date !== state.date && canSlide()) return slideTo(date);
   go(`#/${date}`);
   status.textContent = dayTitle(date) + ', ' + formatDate(date);
 }
@@ -248,7 +255,7 @@ function backToMonth() {
 
 function goToday() {
   const t = new Date();
-  if (state.view === 'day') go(`#/${toISO(t)}`);
+  if (state.view === 'day') goToDay(toISO(t));
   else go(`#/${monthKey(t.getFullYear(), t.getMonth())}`);
 }
 
@@ -272,6 +279,7 @@ async function fetchRange(from, to) {
   // screen, so the tasks in it are dropped and fetched again once the change is saved.
   if (version !== taskVersion) tasksStale = true;
   else placeTasks(tasks, from, to);
+  for (let date = from; date <= to; date = addDays(date, 1)) state.loadedDays.add(date);
 }
 
 function placeTasks(tasks, from, to) {
@@ -324,18 +332,24 @@ async function load({ quiet = false } = {}) {
 }
 
 // Fetch the months on either side quietly, so the next page turn shows its events at once.
-const prefetching = new Set();
+const prefetching = new Map(); // 'YYYY-MM' -> the fetch on its way
+function prefetchMonth(year, month) {
+  const key = monthKey(year, month);
+  if (state.loaded.has(key)) return Promise.resolve();
+  if (prefetching.has(key)) return prefetching.get(key);
+  const cells = monthCells(year, month);
+  const fetching = fetchRange(cells[0].iso, cells[cells.length - 1].iso)
+    .then(() => state.loaded.add(key))
+    .catch(() => {}) // not needed yet; the month loads normally when opened
+    .finally(() => prefetching.delete(key));
+  prefetching.set(key, fetching);
+  return fetching;
+}
+
 function prefetchAround() {
   for (const delta of [-1, 1]) {
     const d = new Date(state.year, state.month + delta, 1);
-    const key = monthKey(d.getFullYear(), d.getMonth());
-    if (state.loaded.has(key) || prefetching.has(key)) continue;
-    prefetching.add(key);
-    const cells = monthCells(d.getFullYear(), d.getMonth());
-    fetchRange(cells[0].iso, cells[cells.length - 1].iso)
-      .then(() => state.loaded.add(key))
-      .catch(() => {}) // not needed yet; the month loads normally when opened
-      .finally(() => prefetching.delete(key));
+    prefetchMonth(d.getFullYear(), d.getMonth());
   }
 }
 
@@ -744,6 +758,263 @@ function enableSwipe(el, shift) {
   }, { passive: true });
 }
 
+// ----- day paging
+// A day follows the finger like a page on the iPhone's home screen. Beside the real day (.day-body) sits a
+// static copy of the neighbouring day (.day-ghost: aria-hidden, inert, no handlers). The copies are drawn
+// ahead of time, a moment after the day itself is drawn (zero height until used), so a drag starts with nothing
+// to build. While the finger moves, the only work is one transform on .day-track; landing is a transform
+// animation too (compositor, no layout). At the end the real day is switched to the new date and the copies
+// removed in the same task, so the same frame shows the finished page.
+// Only the day moves: the top bar and the bottom bar stay put (they are outside .day-track).
+
+const pager = { busy: false, landing: false, adopted: false, stale: false, anim: null, timer: 0, prep: 0, spare: new Map(), live: null, from: '', queued: 0 };
+const SLIDE_EASE = 'cubic-bezier(.22, 1, .36, 1)';
+const dayTrack = () => root.querySelector('.shell[data-view="day"] .day-track');
+const canSlide = () => state.view === 'day' && !reducedMotion() && !pager.busy && Boolean(dayTrack());
+const shiftX = (px) => `translate3d(${px}px, 0, 0)`;
+
+// Back to rest: nothing moving, no ghost, no leftover transform.
+function resetPaging() {
+  clearTimeout(pager.timer);
+  clearTimeout(pager.prep);
+  if (pager.anim) pager.anim.cancel();
+  pager.anim = null;
+  for (const { el } of pager.spare.values()) el.remove();
+  pager.spare.clear();
+  pager.live = null;
+  pager.stale = false;
+  pager.busy = false;
+  pager.queued = 0;
+  const track = dayTrack();
+  if (track) { track.style.transform = ''; track.style.willChange = ''; }
+}
+
+// A slide that was let go of short of the middle: the day stays, the prepared neighbours stay for the next try.
+function restPaging() {
+  clearTimeout(pager.timer);
+  if (pager.anim) pager.anim.cancel();
+  pager.anim = null;
+  pager.busy = false;
+  parkGhost();
+  const track = dayTrack();
+  if (track) { track.style.transform = ''; track.style.willChange = ''; }
+}
+
+function parkGhost() {
+  if (!pager.live) return;
+  pager.live.classList.remove('is-live');
+  pager.live.style.transform = '';
+  pager.live = null;
+}
+
+function fillGhost(ghost, date) {
+  fillDayHead(ghost, date);
+  renderTasks(0, null, ghost, date);
+  renderAgenda(0, ghost, date);
+  ghost.querySelectorAll('.view-enter, .enter-next, .enter-prev, .is-new').forEach((el) => el.classList.remove('view-enter', 'enter-next', 'enter-prev', 'is-new'));
+}
+
+// The neighbouring day as a still picture of what the real day will show once it gets there. Not shown (zero height)
+// until a drag needs it.
+function buildGhost(track, sign, date) {
+  const ghost = track.querySelector('.day-body').cloneNode(true);
+  ghost.className = 'day-ghost';
+  ghost.setAttribute('aria-hidden', 'true');
+  ghost.inert = true;
+  ghost.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
+  ghost.querySelectorAll('[tabindex]').forEach((el) => el.removeAttribute('tabindex'));
+  ghost.querySelector('.quick-add').outerHTML = quickAddHTML; // the real one is emptied when the day changes
+  fillGhost(ghost, date);
+  track.append(ghost);
+  pager.spare.get(sign)?.el.remove();
+  pager.spare.set(sign, { el: ghost, date });
+  if (!isKnown(date)) { // not fetched yet (beyond the month's grid): placeholders now, the real thing as soon as it arrives
+    const d = fromISO(date);
+    prefetchMonth(d.getFullYear(), d.getMonth()).then(() => { if (pager.spare.get(sign)?.el === ghost) fillGhost(ghost, date); });
+  }
+  return ghost;
+}
+
+// Put the neighbour beside the day, ready to slide in (the next day waits on the left, the previous on the right).
+function showGhost(track, sign, date, width) {
+  let held = pager.spare.get(sign);
+  if (!held || held.date !== date) held = { el: buildGhost(track, sign, date), date }; // not prepared in time: build it now
+  if (pager.live && pager.live !== held.el) parkGhost();
+  held.el.style.transform = shiftX(-sign * width);
+  held.el.classList.add('is-live');
+  pager.live = held.el;
+  pager.stale = false;
+}
+
+// A moment after the day is drawn, with nothing going on: draw both neighbours, one per task so none runs long.
+// Anything that redraws the real day (a task ticked, data arriving) makes them out of date: they are dropped and redrawn.
+function dropSpareGhosts() {
+  clearTimeout(pager.prep);
+  if (pager.live) pager.stale = true; // the day was redrawn while its neighbour is in use: that picture may be out of date
+  for (const [sign, { el }] of pager.spare) if (el !== pager.live) { el.remove(); pager.spare.delete(sign); }
+}
+
+function prepareGhosts() {
+  clearTimeout(pager.prep);
+  if (state.view !== 'day' || reducedMotion() || !isPhone()) return;
+  pager.prep = setTimeout(() => {
+    const track = dayTrack();
+    if (!track || pager.busy || pager.live || document.visibilityState !== 'visible') return;
+    const make = (sign, then) => {
+      const date = addDays(state.date, sign);
+      if (pager.spare.get(sign)?.date !== date) buildGhost(track, sign, date);
+      if (then) pager.prep = setTimeout(() => { if (!pager.busy && !pager.live && dayTrack() === track) make(-1); }, 30);
+    };
+    make(1, true);
+  }, 150);
+}
+
+// Let go (or tap an arrow): finish the slide to the neighbour, or come back. Moves nothing but the transform.
+function settle(track, from, commit, sign, date) {
+  const width = track.parentElement.offsetWidth;
+  const to = commit ? sign * width : 0;
+  const ms = Math.round(150 + 150 * Math.abs(to - from) / width); // about 0.3s for the whole way
+  pager.busy = true;
+  pager.from = state.date;
+  const anim = track.animate([{ transform: shiftX(from) }, { transform: shiftX(to) }], { duration: ms, easing: SLIDE_EASE, fill: 'forwards' });
+  pager.anim = anim;
+  const done = () => {
+    if (pager.anim !== anim) return;
+    if (commit) land(track, date, sign);
+    else restPaging();
+  };
+  anim.onfinish = done;
+  pager.timer = setTimeout(done, ms + 250); // if the page was put to sleep mid-slide, never leave a half page behind
+}
+
+// The neighbour that slid in is already drawn, laid out and on screen. Rather than draw the same day again, it
+// takes the place of the old one: only the live "new task" line (with its handlers) moves over from the old day.
+// Not done if the real day was redrawn during the slide (the picture may be out of date): then the day is drawn as usual.
+function adoptGhost(track, sign) {
+  const ghost = pager.live;
+  if (!ghost || pager.stale || pager.spare.get(sign)?.el !== ghost) return false;
+  const body = track.querySelector('.day-body');
+  const form = body.querySelector('.quick-add');
+  const stillForm = ghost.querySelector('.quick-add');
+  form.hidden = stillForm.hidden;
+  stillForm.replaceWith(form);
+  ghost.className = 'day-body';
+  ghost.inert = false;
+  ghost.removeAttribute('aria-hidden');
+  ghost.style.transform = '';
+  ghost.querySelector('.tasks-block .section-label').id = 'tasks-label';
+  ghost.querySelector('.day-title').tabIndex = -1;
+  body.replaceWith(ghost);
+  pager.spare.delete(sign);
+  pager.live = null;
+  return true;
+}
+
+function land(track, date, sign) {
+  const queued = pager.queued;
+  const stillHere = track.isConnected && state.view === 'day' && state.date === pager.from;
+  if (!stillHere) return resetPaging();
+  pager.landing = true; // no fade-in for the new day: it is already in place
+  pager.adopted = adoptGhost(track, sign); // when true, drawing the lists again is skipped (renderTasks / renderAgenda)
+  try {
+    // An entrance animation (.view-enter, enter-next/prev) that restarts after the slide would blink the screen.
+    root.querySelectorAll('.view-enter, .enter-next, .enter-prev').forEach((el) => el.classList.remove('view-enter', 'enter-next', 'enter-prev'));
+    go(`#/${date}`); // draws the new day for real and, first of all, removes the ghost and the transform
+  } finally {
+    pager.landing = false;
+    pager.adopted = false;
+    if (pager.anim || pager.live) resetPaging(); // normally the new day's drawing has already cleared everything
+  }
+  status.textContent = dayTitle(date) + ', ' + formatDate(date);
+  if (queued) requestAnimationFrame(() => shiftDay(queued));
+}
+
+// Arrows and "today": the same slide, without a finger.
+function slideTo(date) {
+  const track = dayTrack();
+  const sign = date.localeCompare(state.date) > 0 ? 1 : -1;
+  showGhost(track, sign, date, track.parentElement.offsetWidth);
+  settle(track, 0, true, sign, date);
+}
+
+function enableDayPaging(el) {
+  let g = null; // the touch being followed: { x, y, axis, ox, dx, sign, width, track, samples }
+  const velocity = (samples, now) => { // px per ms over the last ~80ms; 0 if the finger rested before lifting
+    const last = samples[samples.length - 1];
+    if (now - last.t > 90) return 0;
+    const first = samples.find((p) => last.t - p.t <= 80);
+    return last.t - first.t > 4 ? (last.x - first.x) / (last.t - first.t) : 0;
+  };
+  const release = (cur, now, cancelled) => {
+    const { dx, width, track } = cur;
+    if (!dx) return restPaging();
+    const sign = dx > 0 ? 1 : -1;
+    const v = cancelled ? 0 : velocity(cur.samples, now) * sign; // speed in the direction of the drag
+    const far = Math.abs(dx + cur.lead); // the whole way the finger went, including the first few pixels before the page took hold
+    const commit = !cancelled && ((v > 0.3 && far > 24) || (far > width / 3 && v > -0.2));
+    settle(track, dx, commit, sign, addDays(state.date, sign));
+  };
+
+  el.addEventListener('touchstart', (e) => {
+    if (g?.axis === 'x') { release(g, e.timeStamp, true); g = null; return; } // a second finger: let go of the page
+    g = null;
+    if (!pager.busy && pager.live) restPaging(); // left over from a drag that never ended
+    if (pager.busy || state.view !== 'day' || e.touches.length !== 1 || e.target.closest('input, textarea')) return;
+    const track = dayTrack();
+    if (!track) return;
+    const t = e.touches[0];
+    g = { x: t.clientX, y: t.clientY, axis: '', ox: t.clientX, dx: 0, sign: 0, width: 0, track, reduced: reducedMotion(), at: e.timeStamp, samples: [{ x: t.clientX, t: e.timeStamp }] };
+  }, { passive: true });
+
+  el.addEventListener('touchmove', (e) => {
+    if (!g) return;
+    if (e.touches.length > 1) { if (g.axis === 'x') release(g, e.timeStamp, true); g = null; return; }
+    const t = e.touches[0];
+    g.samples.push({ x: t.clientX, t: e.timeStamp });
+    g.lx = t.clientX;
+    g.ly = t.clientY; // where the finger was last seen: touchend's own position isn't always reported
+    if (g.samples.length > 8) g.samples.shift();
+    if (g.reduced) return; // reduced motion: no following the finger, the day just switches when it is let go
+    if (!g.axis) {
+      const dx = t.clientX - g.x;
+      const dy = t.clientY - g.y;
+      if (Math.hypot(dx, dy) < 10) return;
+      if (Math.abs(dx) <= Math.abs(dy)) { g = null; return; } // up/down: the page scrolls as usual
+      g.axis = 'x';
+      g.ox = t.clientX;
+      g.lead = dx; // the page starts moving from here, not with a jump
+      g.width = g.track.parentElement.offsetWidth;
+      g.sign = dx > 0 ? 1 : -1;
+      g.track.style.willChange = 'transform';
+      showGhost(g.track, g.sign, addDays(state.date, g.sign), g.width); // in place now, before the page starts to move
+      return;
+    }
+    g.dx = Math.max(-g.width, Math.min(g.width, t.clientX - g.ox));
+    const sign = g.dx > 0 ? 1 : g.dx < 0 ? -1 : g.sign;
+    if (sign !== g.sign) { g.sign = sign; showGhost(g.track, sign, addDays(state.date, sign), g.width); } // dragged back past the start: the other neighbour
+    g.track.style.transform = shiftX(g.dx);
+  }, { passive: true });
+
+  el.addEventListener('touchend', (e) => {
+    const cur = g;
+    g = null;
+    if (!cur) return;
+    if (cur.reduced) { // the old rule: a quick sideways flick of 50px or more
+      const dx = (cur.lx ?? cur.x) - cur.x;
+      const dy = (cur.ly ?? cur.y) - cur.y;
+      if (e.timeStamp - cur.at < 800 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) shiftDay(dx > 0 ? 1 : -1);
+      return;
+    }
+    if (cur.axis === 'x') release(cur, e.timeStamp, false);
+  }, { passive: true });
+
+  el.addEventListener('touchcancel', (e) => {
+    const cur = g;
+    g = null;
+    if (cur?.axis === 'x') release(cur, e.timeStamp, true);
+  }, { passive: true });
+}
+
 // ----- day
 
 function renderDay(direction) {
@@ -759,21 +1030,23 @@ function renderDay(direction) {
             <button class="icon-btn" data-action="next-day" aria-label="יום הבא">${icon.forward}</button>
           </div>
         </header>
-        <div class="day-head view-enter">
-          <h1 class="display day-title" tabindex="-1"></h1>
-          <p class="day-date"></p>
-        </div>
-        ${bannerHTML}
-        <div class="push-card" hidden></div>
-        <div class="tasks-block view-enter">
-          <h2 class="section-label" id="tasks-label">משימות<span class="tasks-count"></span></h2>
-          <section class="tasks-card" aria-labelledby="tasks-label">
-            <ol class="task-list"></ol>
-            ${quickAddHTML}
-          </section>
-          <h2 class="section-label">אירועים</h2>
-        </div>
-        <section class="agenda-card view-enter" aria-label="האירועים של היום"><div class="agenda"></div></section>
+        <div class="day-clip"><div class="day-track"><div class="day-body">
+          <div class="day-head view-enter">
+            <h1 class="display day-title" tabindex="-1"></h1>
+            <p class="day-date"></p>
+          </div>
+          ${bannerHTML}
+          <div class="push-card" hidden></div>
+          <div class="tasks-block view-enter">
+            <h2 class="section-label" id="tasks-label">משימות<span class="tasks-count"></span></h2>
+            <section class="tasks-card" aria-labelledby="tasks-label">
+              <ol class="task-list"></ol>
+              ${quickAddHTML}
+            </section>
+            <h2 class="section-label">אירועים</h2>
+          </div>
+          <section class="agenda-card view-enter" aria-label="האירועים של היום"><div class="agenda"></div></section>
+        </div></div></div>
         ${dockHTML}
       </div>`;
     if (fromBoot) skipEntrance();
@@ -788,14 +1061,17 @@ function renderDay(direction) {
     state.doneOpen = false;
     quickAdd.clear();
   }
-  const isToday = state.date === todayISO();
   root.querySelector('.back-label').textContent = MONTHS[state.month];
   root.querySelector('.back-link').setAttribute('aria-label', `חזרה ל${MONTHS[state.month]} ${state.year}`);
-  root.querySelector('.day-title').innerHTML = `${dayTitle(state.date)}${isToday ? ' <span class="today-pill">היום</span>' : ''}`;
-  root.querySelector('.day-date').textContent = formatDate(state.date);
+  fillDayHead(root, state.date);
   animate(root.querySelector('.day-head'), direction);
   renderTasks(direction);
   renderAgenda(direction);
+}
+
+function fillDayHead(scope, date) {
+  scope.querySelector('.day-title').innerHTML = `${dayTitle(date)}${date === todayISO() ? ' <span class="today-pill">היום</span>' : ''}`;
+  scope.querySelector('.day-date').textContent = formatDate(date);
 }
 
 // ----- tasks in the day view
@@ -934,15 +1210,17 @@ function taskCountText(date) {
   return done.length === 1 ? ' · אחת בוצעה' : ` · ${done.length} בוצעו`;
 }
 
-function renderTaskCount() {
-  const label = root.querySelector('.tasks-count');
-  if (label) label.textContent = state.loading && !isKnown(state.date) ? '' : taskCountText(state.date);
+// `scope` and `date` are only given for the page waiting beside the day during a slide (see "day paging"):
+// the same drawing code aimed at that page, which shows placeholders for a day not fetched yet.
+function renderTaskCount(scope = root, date = state.date, waiting = false) {
+  const label = scope.querySelector('.tasks-count');
+  if (label) label.textContent = (waiting || state.loading) && !isKnown(date) ? '' : taskCountText(date);
 }
 
-function taskRow(task, fresh) {
+function taskRow(task, fresh, day = state.date) {
   const done = Boolean(task.doneOn);
   const title = escapeHTML(task.title);
-  const from = task.date !== state.date ? `מ-${formatDate(task.date).slice(0, 5)}` : ''; // carried on from an earlier day
+  const from = task.date !== day ? `מ-${formatDate(task.date).slice(0, 5)}` : ''; // carried on from an earlier day
   const priority = task.priority ? PRIORITY_NAMES[task.priority] : '';
   return `
     <li class="task${done ? ' is-done' : ''}${task.id === fresh ? ' is-new' : ''}" data-id="${task.id}">
@@ -956,29 +1234,31 @@ function taskRow(task, fresh) {
     </li>`;
 }
 
-function renderTasks(direction = 0, fresh = null) {
-  const block = root.querySelector('.tasks-block');
+function renderTasks(direction = 0, fresh = null, scope = root, date = state.date) {
+  const block = scope.querySelector('.tasks-block');
   if (!block) return;
-  clearTimeout(settleTimer);
+  const waiting = scope !== root;
+  if (!waiting && pager.adopted) return; // the lists just slid in already drawn
+  if (!waiting) { clearTimeout(settleTimer); dropSpareGhosts(); }
   const list = block.querySelector('.task-list');
-  const past = state.date < todayISO();
-  const skeleton = state.loading && !isKnown(state.date);
-  const { open, done } = tasksOn(state.date);
+  const past = date < todayISO();
+  const skeleton = (waiting || state.loading) && !isKnown(date);
+  const { open, done } = tasksOn(date);
 
   // A past day takes no new tasks - they would move to today at once. It keeps what was done on it.
   block.hidden = past && (skeleton || !done.length);
   block.querySelector('.quick-add').hidden = past;
-  renderTaskCount();
+  renderTaskCount(scope, date, waiting);
 
-  const focused = document.activeElement?.closest?.('.task-list [data-action]');
+  const focused = !waiting && document.activeElement?.closest?.('.task-list [data-action]');
   const refocus = focused && `[data-action="${focused.dataset.action}"]${focused.dataset.id ? `[data-id="${focused.dataset.id}"]` : ''}`;
   if (skeleton) {
     list.innerHTML = [58, 42].map((w) => `
       <li class="task" aria-hidden="true"><span class="task-check"><span class="ring"></span></span><span class="skel" style="width:${w}%"></span></li>`).join('');
   } else {
     // More than three done fold into one row, which opens on a tap.
-    const folded = done.length > 3 && !state.doneOpen;
-    const rows = open.map((t) => taskRow(t, fresh));
+    const folded = done.length > 3 && (waiting || !state.doneOpen);
+    const rows = open.map((t) => taskRow(t, fresh, date));
     if (done.length > 3) {
       rows.push(`
         <li class="task-fold">
@@ -987,7 +1267,7 @@ function renderTasks(direction = 0, fresh = null) {
           </button>
         </li>`);
     }
-    if (!folded) rows.push(...done.map((t) => taskRow(t, fresh)));
+    if (!folded) rows.push(...done.map((t) => taskRow(t, fresh, date)));
     list.innerHTML = rows.join('');
   }
   if (refocus) list.querySelector(refocus)?.focus();
@@ -1002,12 +1282,15 @@ function showTaskDeleted(id) {
   setTimeout(() => renderTasks(), 240);
 }
 
-function renderAgenda(direction = 0) {
-  const agenda = root.querySelector('.agenda');
+function renderAgenda(direction = 0, scope = root, date = state.date) {
+  const agenda = scope.querySelector('.agenda');
   if (!agenda) return;
-  const events = state.byDate.get(state.date) ?? [];
+  const waiting = scope !== root;
+  if (!waiting && pager.adopted) return prepareGhosts();
+  if (!waiting) dropSpareGhosts();
+  const events = state.byDate.get(date) ?? [];
 
-  const skeleton = state.loading && !isKnown(state.date);
+  const skeleton = (waiting || state.loading) && !isKnown(date);
   if (skeleton) {
     agenda.innerHTML = [72, 54, 64].map((w) => `
       <div class="row" aria-hidden="true"><span class="skel when-skel"></span><span class="skel" style="width:${w}%"></span></div>`).join('');
@@ -1031,9 +1314,11 @@ function renderAgenda(direction = 0) {
     }).join('')}</ol>`;
   }
 
+  if (waiting) return;
   root.querySelector('.banner').hidden = !state.loadError;
   animate(agenda, direction);
   if (!skeleton) state.highlight = null;
+  prepareGhosts();
 }
 
 function replay(el, className) {
@@ -1043,7 +1328,7 @@ function replay(el, className) {
 }
 
 function animate(el, direction) {
-  if (!direction) return;
+  if (!direction || pager.landing) return;
   el.classList.remove('enter-next', 'enter-prev');
   replay(el, direction > 0 ? 'enter-next' : 'enter-prev');
 }

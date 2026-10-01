@@ -459,7 +459,24 @@ label {
   .back-link:hover { background: var(--paper-hover); }
 }
 
-.day-head { margin: 4px 4px 20px; }
+/* The top margin is 0 (was 4): inside .day-body it no longer merges with the top bar's bottom margin (16 or 20),
+   which is larger, so the day sits exactly where it did. */
+.day-head { margin: 0 4px 20px; }
+
+/* ---------- day paging: the day follows the finger, a still copy of the neighbouring day waits beside it (app.js, "day paging") */
+
+/* The clip reaches the screen's edges (it undoes the shell's side padding), so a day slides off the screen, not off a margin. */
+.day-clip { position: relative; margin-inline: -16px; padding-inline: 16px; overflow-x: clip; }
+.day-track { position: relative; }
+.day-body { display: flow-root; }
+/* A prepared neighbour has no height until a drag needs it, so it adds nothing to the page's scroll. */
+.day-ghost { position: absolute; top: 0; inset-inline: 0; height: 0; overflow: hidden; pointer-events: none; }
+.day-ghost.is-live { height: auto; overflow: visible; }
+/* Vertical scrolling stays the browser's; sideways drags are ours, so they need no blocking listener. */
+#app:has(.shell[data-view="day"]) { touch-action: pan-y; }
+@media (min-width: 768px) {
+  .day-clip { margin-inline: -24px; padding-inline: 24px; }
+}
 
 .day-title {
   display: flex;
