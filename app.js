@@ -1,4 +1,4 @@
-import * as data from './data.js?v=17';
+import * as data from './data.js?v=18';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -112,6 +112,7 @@ async function start() {
   data.onSignedOut(renderLogin);
   if (await data.hasSession()) enterApp();
   else renderLogin();
+  root.removeAttribute('aria-busy'); // the skeleton in index.html is gone by now
 }
 
 // sw.js keeps the app's files on the phone, so it opens without waiting for the network (and offline).
@@ -159,6 +160,21 @@ function parseRoute() {
 
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+// The day-open / day-close transition while it runs (a second transition would cut it short).
+let routeTransition = null;
+
+// The day's real lists replacing their loading placeholders: a short cross-fade of the whole screen
+// instead of a hard swap. The lists are rarely as tall as the placeholders, so a hard swap moves
+// everything below them in one jump (the cards, the "events" title). Without view-transition
+// support, with reduced motion, or while the day is still opening, it just swaps.
+function swapIn(draw) {
+  if (!document.startViewTransition || reducedMotion() || routeTransition) return draw();
+  document.documentElement.classList.add('vt-swap');
+  const transition = document.startViewTransition(draw);
+  transition.ready.catch(() => {}); // skipped (e.g. the page isn't being drawn): the screen still updates
+  transition.finished.finally(() => document.documentElement.classList.remove('vt-swap'));
+}
+
 // Opening a day grows it out of the tapped square; going back shrinks it into the square again.
 function route() {
   const next = parseRoute();
@@ -176,7 +192,9 @@ function route() {
     if (next.view === 'month') nameSquare();
   });
   transition.ready.catch(() => {}); // skipped (e.g. the page isn't being drawn): the screen still switches, just without motion
+  routeTransition = transition;
   transition.finished.finally(() => {
+    if (routeTransition === transition) routeTransition = null;
     root.querySelectorAll('.day[style]').forEach((el) => el.style.removeProperty('view-transition-name'));
   });
 }
@@ -273,7 +291,9 @@ async function load({ quiet = false } = {}) {
   const day = state.date; // what this load asked for, even if the screen moves on meanwhile
   const month = monthKey(state.year, state.month);
   const cells = monthCells(state.year, state.month);
-  const [from, to] = isDay ? [day, day] : [cells[0].iso, cells[cells.length - 1].iso];
+  // A day is fetched together with its whole month, so the days around it open at once - no loading
+  // screen on every arrow or swipe after the app was opened straight into a day (the 07:00 reminder).
+  const [from, to] = [cells[0].iso, cells[cells.length - 1].iso];
   const known = isDay ? isKnown(day) : state.loaded.has(month);
   const before = rangeSignature(from, to);
   const hadError = state.loadError;
@@ -284,8 +304,7 @@ async function load({ quiet = false } = {}) {
   }
   try {
     await fetchRange(from, to);
-    if (isDay) state.loadedDays.add(day);
-    else state.loaded.add(month);
+    state.loaded.add(month);
     if (token !== loadToken) return;
     state.loadError = false;
   } catch (error) {
@@ -294,8 +313,10 @@ async function load({ quiet = false } = {}) {
     state.loadError = true;
   }
   const changed = state.loading || state.loadError !== hadError || rangeSignature(from, to) !== before;
+  const replacesSkeleton = state.loading;
   state.loading = false;
-  if (changed) renderContent(); // nothing new: keep the screen as is, so nothing flickers
+  if (changed && replacesSkeleton && isDay) swapIn(renderContent);
+  else if (changed) renderContent(); // nothing new: keep the screen as is, so nothing flickers
   if (!isDay && !state.loadError) prefetchAround();
 }
 
@@ -481,6 +502,11 @@ function showDeleted(id) {
 const renderContent = () => (state.view === 'day' ? (renderTasks(), renderAgenda()) : renderGrid());
 const dayTitle = (date) => `יום ${DAY_NAMES[fromISO(date).getDay()]}`;
 
+// index.html starts with a static skeleton (.boot). The first screen takes its place without the usual
+// fade-in from nothing, which would flash the plain background between the two.
+const cameFromBoot = () => Boolean(root.querySelector('.boot'));
+const skipEntrance = () => root.querySelectorAll('.view-enter').forEach((el) => el.classList.remove('view-enter'));
+
 const dockHTML = `
   <nav class="dock" aria-label="פעולות">
     <button class="btn btn-primary btn-add" data-action="add">${icon.plus}הוסף אירוע</button>
@@ -555,6 +581,7 @@ function renderLogin() {
 
 function renderMonth(direction, returningTo) {
   if (!root.querySelector('.shell[data-view="month"]')) {
+    const fromBoot = cameFromBoot();
     root.innerHTML = `
       <div class="shell" data-view="month">
         <header class="topbar">
@@ -573,6 +600,7 @@ function renderMonth(direction, returningTo) {
         </section>
         ${dockHTML}
       </div>`;
+    if (fromBoot) skipEntrance();
     enableSwipe(root.querySelector('.month-card'), shiftMonth);
     renderPushCard();
     gridSize.disconnect();
@@ -717,6 +745,7 @@ function enableSwipe(el, shift) {
 
 function renderDay(direction) {
   if (!root.querySelector('.shell[data-view="day"]')) {
+    const fromBoot = cameFromBoot();
     root.innerHTML = `
       <div class="shell" data-view="day">
         <header class="topbar">
@@ -744,6 +773,7 @@ function renderDay(direction) {
         <section class="agenda-card view-enter" aria-label="האירועים של היום"><div class="agenda"></div></section>
         ${dockHTML}
       </div>`;
+    if (fromBoot) skipEntrance();
     root.querySelector('.day-title').focus({ preventScroll: true });
     renderPushCard();
     quickAdd = setupQuickAdd(root.querySelector('.quick-add'));

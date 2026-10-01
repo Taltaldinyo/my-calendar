@@ -908,6 +908,8 @@ button.row:focus-visible { outline-offset: -2px; }
 
 ::view-transition-old(day) { animation: vt-out .2s ease-out both; }
 ::view-transition-new(day) { animation: vt-in .3s ease-out .05s both; }
+/* Real lists replacing their placeholders (swapIn in app.js): the whole screen cross-fades, the day isn't pictured on its own. */
+.vt-swap .shell[data-view="day"] { view-transition-name: none; }
 ::view-transition-old(root) { animation: vt-out .24s ease-out both; }
 ::view-transition-new(root) { animation: vt-in .34s ease-out both; }
 
@@ -1430,6 +1432,73 @@ html { overscroll-behavior: none; }
   .sheet-form { padding: 28px 28px 0; }
   .sheet-footer { padding-bottom: 28px; }
   .field-row { grid-template-columns: 1.3fr 1fr; }
+}
+
+/* ---------- the skeleton shown on opening
+   Static (index.html), so it is on screen the moment the page opens from the copy on the phone, while
+   app.js is still waiting to hear whether anyone is signed in. app.js replaces it with the real screen.
+   It reuses the real screens' classes for everything inside, and repeats the .shell rules here for its two
+   frames - NOT as .shell, because app.js tells "is a screen already drawn" by looking for .shell. When the
+   month or day layout changes (the .shell and month rules above, the topbar buttons), change this too:
+   a different size here shows up as a jump when the real screen takes over. */
+
+.boot { display: none; pointer-events: none; }
+html[data-boot="month"] .boot-month { display: flex; }
+html[data-boot="day"] .boot-day,
+html[data-boot="day-past"] .boot-day { display: block; }
+html[data-boot="day-past"] .boot-day .tasks-block { display: none; } /* a past day has no tasks row */
+
+.boot-month, .boot-day {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: calc(env(safe-area-inset-top) + 20px) 16px calc(env(safe-area-inset-bottom) + 104px);
+}
+
+.boot-month {
+  flex-direction: column;
+  height: 100dvh;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 92px);
+}
+
+.boot-month .month-card { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.boot-month .grid { flex: 1; grid-template-rows: repeat(6, minmax(0, 1fr)); }
+.boot-month .day { min-height: 0; }
+
+.boot .month-title { display: flex; align-items: center; height: 1.1em; } /* the real title's line */
+.boot-title { width: 5.2em; height: .7em; }
+.boot .num .skel { width: 16px; height: 10px; }
+
+.boot .topbar-actions { flex: none; }
+.boot-icon { flex: none; width: 44px; height: 44px; }
+.boot-top { display: none; flex: none; height: 44px; }
+.boot-top-add { width: 97.27px; }   /* the real "הוסף" and "היום" buttons, measured */
+.boot-top-today { width: 67.42px; }
+.boot-back { display: flex; align-items: center; height: 44px; padding: 0 14px; }
+.boot-back .skel { width: 84px; height: 22px; }
+
+.boot .dock .skel { height: 52px; }
+.boot-add { flex: 1; }
+.boot-today { flex: none; width: 75.42px; }
+
+.boot .day-title { min-height: 1.1em; }
+.boot .day-title .skel { width: 4.2em; height: .72em; }
+.boot .day-date { display: flex; align-items: center; height: 24px; }
+.boot .day-date .skel { width: 96px; height: 12px; }
+.boot .section-label { display: flex; align-items: center; height: 21px; }
+.boot .section-label .skel { width: 56px; height: 11px; }
+.boot .qa-line .skel { width: 36%; height: 14px; margin-inline-start: 56px; }
+
+@media (min-width: 768px) {
+  .boot-month, .boot-day { padding: 40px 24px 48px; }
+  .boot-day { max-width: 760px; }
+  .boot-month { min-height: 640px; padding-bottom: 24px; }
+  .boot-month .grid { min-height: 0; }
+  .boot-top { display: block; }
+  .boot-top-today { margin-inline-end: 4px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot .skel { animation: none; }
 }
 
 /* ---------- motion */

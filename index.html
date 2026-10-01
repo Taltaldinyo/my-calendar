@@ -17,15 +17,87 @@
   <link rel="preconnect" href="https://hhpoypzgnlmkmundyvft.supabase.co" crossorigin>
   <!-- Fonts: our own copies in fonts/ (@font-face at the top of style.css). No preload - measured, it made a cold open no faster -->
   <!-- ?v= is raised on every update (here, in the two imports, and VERSION in sw.js), so a phone never mixes old and new files -->
-  <link rel="stylesheet" href="style.css?v=17">
-  <link rel="modulepreload" href="data.js?v=17">
-  <link rel="modulepreload" href="config.js?v=17">
+  <!-- Which skeleton to show while the app starts (style.css, "the skeleton shown on opening"): the day's if the address
+       is a day, none if nobody is signed in on this device (the login screen is coming, not a calendar).
+       supabase-js keeps the saved sign-in under sb-<project>-auth-token. If storage can't be read, show the month. -->
+  <script>
+    (function () {
+      var boot = 'month';
+      try {
+        var signedIn = false;
+        for (var i = 0; i < localStorage.length; i++) if (/^sb-.+-auth-token$/.test(localStorage.key(i))) signedIn = true;
+        var day = location.hash.match(/^#\/(\d{4})-(\d{2})-(\d{2})$/);
+        if (!signedIn) boot = 'none';
+        else if (day) boot = new Date(+day[1], day[2] - 1, +day[3]) < new Date(new Date().setHours(0, 0, 0, 0)) ? 'day-past' : 'day';
+      } catch (e) {}
+      document.documentElement.setAttribute('data-boot', boot);
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css?v=18">
+  <link rel="modulepreload" href="data.js?v=18">
+  <link rel="modulepreload" href="config.js?v=18">
   <!-- Our own copy of the Supabase library. A classic script, so it runs before app.js -->
-  <script src="vendor/supabase.js?v=17"></script>
-  <script type="module" src="app.js?v=17"></script>
+  <script src="vendor/supabase.js?v=18"></script>
+  <script type="module" src="app.js?v=18"></script>
 </head>
 <body>
-  <main id="app"></main>
+  <main id="app" aria-busy="true">
+    <!-- Skeleton: static, so it is on screen the moment this page opens from the copy on the phone, before any
+         script has run. app.js replaces it with the real screen. index.html's inline script picks which one
+         (or none: no saved sign-in means the login screen is coming, not a calendar). Sizes come from the
+         real screens - see "the skeleton shown on opening" in style.css. -->
+    <div class="boot boot-month" aria-hidden="true">
+      <div class="topbar">
+        <div class="month-title"><span class="skel boot-title"></span></div>
+          <div class="topbar-actions">
+            <span class="skel boot-top boot-top-add"></span><span class="skel boot-top boot-top-today"></span>
+            <span class="skel boot-icon"></span><span class="skel boot-icon"></span>
+          </div>
+      </div>
+      <div class="month-card">
+        <div class="weekdays"><span>א׳</span><span>ב׳</span><span>ג׳</span><span>ד׳</span><span>ה׳</span><span>ו׳</span><span>ש׳</span></div>
+        <div class="grid">
+            <span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span>
+            <span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span>
+            <span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span>
+            <span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span>
+            <span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span>
+            <span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span><span class="day"><span class="num"><span class="skel"></span></span></span>
+        </div>
+      </div>
+      <div class="dock"><span class="skel boot-add"></span><span class="skel boot-today"></span></div>
+    </div>
+    <div class="boot boot-day" aria-hidden="true">
+      <div class="topbar">
+        <div class="boot-back"><span class="skel"></span></div>
+          <div class="topbar-actions">
+            <span class="skel boot-top boot-top-add"></span><span class="skel boot-top boot-top-today"></span>
+            <span class="skel boot-icon"></span><span class="skel boot-icon"></span>
+          </div>
+      </div>
+      <div class="day-head">
+        <div class="day-title"><span class="skel"></span></div>
+        <div class="day-date"><span class="skel"></span></div>
+      </div>
+      <div class="tasks-block">
+        <div class="section-label"><span class="skel"></span></div>
+        <div class="tasks-card">
+          <ol class="task-list">
+            <li class="task"><span class="task-check"><span class="ring"></span></span><span class="skel" style="width:58%"></span></li>
+            <li class="task"><span class="task-check"><span class="ring"></span></span><span class="skel" style="width:42%"></span></li>
+          </ol>
+          <div class="quick-add"><div class="qa-line"><span class="skel"></span></div></div>
+        </div>
+        <div class="section-label"><span class="skel"></span></div>
+      </div>
+      <div class="agenda-card"><div class="agenda">
+        <div class="row"><span class="skel when-skel"></span><span class="skel" style="width:72%"></span></div>
+        <div class="row"><span class="skel when-skel"></span><span class="skel" style="width:54%"></span></div>
+        <div class="row"><span class="skel when-skel"></span><span class="skel" style="width:64%"></span></div>
+      </div></div>
+      <div class="dock"><span class="skel boot-add"></span><span class="skel boot-today"></span></div>
+    </div>
+  </main>
   <p id="status" class="sr-only" aria-live="polite"></p>
 </body>
 </html>
