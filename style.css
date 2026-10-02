@@ -533,6 +533,8 @@ label {
   font-weight: 600;
 }
 .day-holiday[hidden] { display: none; }
+/* A small holiday or fast: a quiet text line, no symbol (it never appears on the month grid). */
+.day-holiday.is-minor { color: var(--ink-2); font-size: 14px; font-weight: 500; }
 .day-holiday svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 .day-date {

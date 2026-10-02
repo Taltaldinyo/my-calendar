@@ -1,5 +1,5 @@
-import * as data from './data.js?v=23';
-import { holidayOn } from './holidays.js?v=23';
+import * as data from './data.js?v=24';
+import { holidayOn } from './holidays.js?v=24';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -648,8 +648,9 @@ function renderGrid(direction = 0) {
     const events = state.byDate.get(cell.iso) ?? [];
     const tasks = skeleton && cell.inMonth ? 0 : openCounts.get(cell.iso) ?? 0;
     const isToday = cell.iso === today;
-    const hol = holidayOn(cell.iso);
-    const label = `${isToday ? 'היום, ' : ''}יום ${DAY_NAMES[cell.weekday]}, ${cell.day} ב${MONTHS[cell.month]}${hol ? `, ${hol.name}` : ''}, ${eventCount(events.length)}`
+    const named = holidayOn(cell.iso); // a 'minor' holiday (small holiday or fast) is only named for screen readers: no mark, no row on the grid
+    const hol = named && named.type !== 'minor' ? named : null;
+    const label = `${isToday ? 'היום, ' : ''}יום ${DAY_NAMES[cell.weekday]}, ${cell.day} ב${MONTHS[cell.month]}${named ? `, ${named.name}` : ''}, ${eventCount(events.length)}`
       + (tasks ? `, ${tasks === 1 ? 'משימה פתוחה אחת' : `${tasks} משימות פתוחות`}` : '');
     const isNew = (ev) => (ev.id === state.highlight ? ' is-new' : '');
     // On the phone a single dot says the day isn't free, however many events it has. It pops in
@@ -1083,8 +1084,10 @@ function fillDayHead(scope, date) {
   const hol = holidayOn(date);
   const line = scope.querySelector('.day-holiday');
   line.hidden = !hol;
-  line.innerHTML = hol ? `${holIcon(hol)}<span>${hol.name}</span>` : '';
+  const isMinor = hol?.type === 'minor';
+  line.innerHTML = hol ? `${isMinor ? '' : holIcon(hol)}<span>${hol.name}</span>` : ''; // minor: text only, no symbol
   line.classList.toggle('is-memorial', hol?.type === 'memorial');
+  line.classList.toggle('is-minor', isMinor);
 }
 
 // ----- tasks in the day view
