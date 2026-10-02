@@ -1,5 +1,5 @@
-import * as data from './data.js?v=25';
-import { holidayOn } from './holidays.js?v=25';
+import * as data from './data.js?v=26';
+import { holidayOn } from './holidays.js?v=26';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -670,7 +670,7 @@ function renderGrid(direction = 0) {
             ${ev.kind ? `<span class="k">${icon[ev.kind]}</span>` : ''}${ev.time ? `<span class="t">${ev.time}</span>` : ''}<span class="n">${escapeHTML(ev.title)}</span>
           </span>`).join(''); // all of them; fitChips keeps what fits the square
     return `
-      <button class="day${cell.inMonth ? '' : ' is-out'}${isToday ? ' is-today' : ''}" data-action="open-day" data-date="${cell.iso}" aria-label="${label}">
+      <button class="day${cell.inMonth ? '' : ' is-out'}${isToday ? ' is-today' : ''}${hol?.off ? ' is-off' : ''}" data-action="open-day" data-date="${cell.iso}" aria-label="${label}">
         <span class="day-top"><span class="num">${cell.day}</span>${hol ? `<span class="hol-mark is-${hol.type}" aria-hidden="true">${holIcon(hol)}</span>` : ''}${tasks ? `<span class="tmark" aria-hidden="true">${icon.circle}${taskCount(tasks)}</span>` : ''}</span>
         <span class="marks" aria-hidden="true">${marks}</span>
         <span class="chips" aria-hidden="true">${hol ? `<span class="hol-row is-${hol.type}${hol.off ? ' is-off' : ''}"${hol.off ? ` title="${hol.name} · ${OFF_WORDS}"` : ''}>${holIcon(hol)}<span class="n">${hol.name}</span></span>` : ''}${chips}</span>
