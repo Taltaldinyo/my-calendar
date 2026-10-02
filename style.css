@@ -62,6 +62,11 @@
 
 html { -webkit-text-size-adjust: 100%; }
 
+/* No double-tap zoom and no 300ms tap delay; scrolling and pinch-zoom stay. touch-action is an intersection down the
+   parent chain, so the day view's `pan-y` (below) still wins there. A dialog sits in the top layer and may not
+   inherit from body in every browser, hence the explicit .sheet. */
+html, body, dialog.sheet { touch-action: manipulation; }
+
 body {
   margin: 0;
   min-height: 100dvh;
