@@ -383,7 +383,7 @@ label {
 
 /* Holidays and the memorial day. Phone: a small symbol in the corner of the square, out of the layout, so the number and
    the dot stay exactly where they were. Computer: a line with symbol and name at the top of the events (.hol-row).
-   A star is a festival, an eve or a chol hamoed day; a candle is the memorial day - told apart by shape, not color. */
+   A Torah scroll is a festival, an eve or a chol hamoed day; a candle is the memorial day - told apart by shape, not color. */
 .day { position: relative; }
 .hol-mark {
   position: absolute;
