@@ -1,4 +1,5 @@
-import * as data from './data.js?v=21';
+import * as data from './data.js?v=22';
+import { holidayOn } from './holidays.js?v=22';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -79,6 +80,9 @@ const icon = {
   workout: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5v11M17.5 6.5v11M3 9.5v5M21 9.5v5M6.5 12h11"/></svg>',
   other: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  // Holidays: a star for a festival (and its eves and chol hamoed), a candle for the memorial day - told apart by shape, not color.
+  star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.4 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg>',
+  candle: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5c1.6 2 2.2 3 2.2 4.1a2.2 2.2 0 0 1-4.4 0c0-1.1.6-2.1 2.2-4.1z"/><rect x="8.5" y="11" width="7" height="10.5" rx="1.2"/></svg>',
   circle: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/></svg>',
   chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
   repeat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></svg>',
@@ -630,6 +634,8 @@ function renderMonth(direction, returningTo) {
   if (returningTo) root.querySelector(`.day[data-date="${returningTo}"]`)?.focus({ preventScroll: true });
 }
 
+const holIcon = (hol) => (hol.type === 'memorial' ? icon.candle : icon.star);
+
 function renderGrid(direction = 0) {
   const grid = root.querySelector('.grid');
   if (!grid) return;
@@ -642,7 +648,8 @@ function renderGrid(direction = 0) {
     const events = state.byDate.get(cell.iso) ?? [];
     const tasks = skeleton && cell.inMonth ? 0 : openCounts.get(cell.iso) ?? 0;
     const isToday = cell.iso === today;
-    const label = `${isToday ? 'היום, ' : ''}יום ${DAY_NAMES[cell.weekday]}, ${cell.day} ב${MONTHS[cell.month]}, ${eventCount(events.length)}`
+    const hol = holidayOn(cell.iso);
+    const label = `${isToday ? 'היום, ' : ''}יום ${DAY_NAMES[cell.weekday]}, ${cell.day} ב${MONTHS[cell.month]}${hol ? `, ${hol.name}` : ''}, ${eventCount(events.length)}`
       + (tasks ? `, ${tasks === 1 ? 'משימה פתוחה אחת' : `${tasks} משימות פתוחות`}` : '');
     const isNew = (ev) => (ev.id === state.highlight ? ' is-new' : '');
     // On the phone a single dot says the day isn't free, however many events it has. It pops in
@@ -659,9 +666,9 @@ function renderGrid(direction = 0) {
           </span>`).join(''); // all of them; fitChips keeps what fits the square
     return `
       <button class="day${cell.inMonth ? '' : ' is-out'}${isToday ? ' is-today' : ''}" data-action="open-day" data-date="${cell.iso}" aria-label="${label}">
-        <span class="day-top"><span class="num">${cell.day}</span>${tasks ? `<span class="tmark" aria-hidden="true">${icon.circle}${taskCount(tasks)}</span>` : ''}</span>
+        <span class="day-top"><span class="num">${cell.day}</span>${hol ? `<span class="hol-mark is-${hol.type}" aria-hidden="true">${holIcon(hol)}</span>` : ''}${tasks ? `<span class="tmark" aria-hidden="true">${icon.circle}${taskCount(tasks)}</span>` : ''}</span>
         <span class="marks" aria-hidden="true">${marks}</span>
-        <span class="chips" aria-hidden="true">${chips}</span>
+        <span class="chips" aria-hidden="true">${hol ? `<span class="hol-row is-${hol.type}">${holIcon(hol)}<span class="n">${hol.name}</span></span>` : ''}${chips}</span>
       </button>`;
   }).join('');
 
@@ -1034,6 +1041,7 @@ function renderDay(direction) {
           <div class="day-head view-enter">
             <h1 class="display day-title" tabindex="-1"></h1>
             <p class="day-date"></p>
+            <p class="day-holiday" hidden></p>
           </div>
           ${bannerHTML}
           <div class="push-card" hidden></div>
@@ -1072,6 +1080,11 @@ function renderDay(direction) {
 function fillDayHead(scope, date) {
   scope.querySelector('.day-title').innerHTML = `${dayTitle(date)}${date === todayISO() ? ' <span class="today-pill">היום</span>' : ''}`;
   scope.querySelector('.day-date').textContent = formatDate(date);
+  const hol = holidayOn(date);
+  const line = scope.querySelector('.day-holiday');
+  line.hidden = !hol;
+  line.innerHTML = hol ? `${holIcon(hol)}<span>${hol.name}</span>` : '';
+  line.classList.toggle('is-memorial', hol?.type === 'memorial');
 }
 
 // ----- tasks in the day view
