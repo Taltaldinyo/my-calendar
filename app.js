@@ -1,5 +1,5 @@
-import * as data from './data.js?v=24';
-import { holidayOn } from './holidays.js?v=24';
+import * as data from './data.js?v=25';
+import { holidayOn } from './holidays.js?v=25';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -82,6 +82,8 @@ const icon = {
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   // Holidays: a Torah scroll for a festival (and its eves and chol hamoed), a candle for the memorial day - told apart by shape, not color.
   torah: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16M19 4v16"/><circle cx="5" cy="3.4" r="1"/><circle cx="19" cy="3.4" r="1"/><rect x="7" y="6" width="10" height="12" rx="1"/><path d="M10 10h4M10 13h4M10 16h2.5"/></svg>',
+  // The same scroll for a day off work, FILLED: the middle scroll is solid and the text lines are cut out of it (holes show the square's own background, so it stays right on hover/today/out-of-month); the two pillars stay lines.
+  torahOff: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16M19 4v16"/><circle cx="5" cy="3.4" r="1"/><circle cx="19" cy="3.4" r="1"/><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M8 5h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM10 9.4h4v1.1h-4zM10 12.45h4v1.1h-4zM10 15.5h2.5v1.1H10z"/></svg>',
   candle: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5c1.6 2 2.2 3 2.2 4.1a2.2 2.2 0 0 1-4.4 0c0-1.1.6-2.1 2.2-4.1z"/><rect x="8.5" y="11" width="7" height="10.5" rx="1.2"/></svg>',
   circle: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/></svg>',
   chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
@@ -634,7 +636,9 @@ function renderMonth(direction, returningTo) {
   if (returningTo) root.querySelector(`.day[data-date="${returningTo}"]`)?.focus({ preventScroll: true });
 }
 
-const holIcon = (hol) => (hol.type === 'memorial' ? icon.candle : icon.torah);
+// A day off work gets the FILLED scroll, every other marked day the outline scroll, the memorial day the candle: told apart by shape, not color.
+const holIcon = (hol) => (hol.type === 'memorial' ? icon.candle : hol.off ? icon.torahOff : icon.torah);
+const OFF_WORDS = 'יום חופש';
 
 function renderGrid(direction = 0) {
   const grid = root.querySelector('.grid');
@@ -650,7 +654,7 @@ function renderGrid(direction = 0) {
     const isToday = cell.iso === today;
     const named = holidayOn(cell.iso); // a 'minor' holiday (small holiday or fast) is only named for screen readers: no mark, no row on the grid
     const hol = named && named.type !== 'minor' ? named : null;
-    const label = `${isToday ? 'היום, ' : ''}יום ${DAY_NAMES[cell.weekday]}, ${cell.day} ב${MONTHS[cell.month]}${named ? `, ${named.name}` : ''}, ${eventCount(events.length)}`
+    const label = `${isToday ? 'היום, ' : ''}יום ${DAY_NAMES[cell.weekday]}, ${cell.day} ב${MONTHS[cell.month]}${named ? `, ${named.name}${named.off ? `, ${OFF_WORDS}` : ''}` : ''}, ${eventCount(events.length)}`
       + (tasks ? `, ${tasks === 1 ? 'משימה פתוחה אחת' : `${tasks} משימות פתוחות`}` : '');
     const isNew = (ev) => (ev.id === state.highlight ? ' is-new' : '');
     // On the phone a single dot says the day isn't free, however many events it has. It pops in
@@ -669,7 +673,7 @@ function renderGrid(direction = 0) {
       <button class="day${cell.inMonth ? '' : ' is-out'}${isToday ? ' is-today' : ''}" data-action="open-day" data-date="${cell.iso}" aria-label="${label}">
         <span class="day-top"><span class="num">${cell.day}</span>${hol ? `<span class="hol-mark is-${hol.type}" aria-hidden="true">${holIcon(hol)}</span>` : ''}${tasks ? `<span class="tmark" aria-hidden="true">${icon.circle}${taskCount(tasks)}</span>` : ''}</span>
         <span class="marks" aria-hidden="true">${marks}</span>
-        <span class="chips" aria-hidden="true">${hol ? `<span class="hol-row is-${hol.type}">${holIcon(hol)}<span class="n">${hol.name}</span></span>` : ''}${chips}</span>
+        <span class="chips" aria-hidden="true">${hol ? `<span class="hol-row is-${hol.type}${hol.off ? ' is-off' : ''}"${hol.off ? ` title="${hol.name} · ${OFF_WORDS}"` : ''}>${holIcon(hol)}<span class="n">${hol.name}</span></span>` : ''}${chips}</span>
       </button>`;
   }).join('');
 
@@ -1085,7 +1089,7 @@ function fillDayHead(scope, date) {
   const line = scope.querySelector('.day-holiday');
   line.hidden = !hol;
   const isMinor = hol?.type === 'minor';
-  line.innerHTML = hol ? `${isMinor ? '' : holIcon(hol)}<span>${hol.name}</span>` : ''; // minor: text only, no symbol
+  line.innerHTML = hol ? `${isMinor ? '' : holIcon(hol)}<span>${hol.name}${hol.off ? ` · ${OFF_WORDS}` : ''}</span>` : ''; // minor: text only, no symbol; a day off adds the words "day off"
   line.classList.toggle('is-memorial', hol?.type === 'memorial');
   line.classList.toggle('is-minor', isMinor);
 }
