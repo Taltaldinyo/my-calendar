@@ -397,10 +397,6 @@ label {
 }
 .hol-mark svg, .hol-row svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .day.is-out .hol-mark { opacity: .55; }
-/* A day off work also gets a thin teal ring around its number - a second shape sign, big enough to see at 12px symbol size.
-   Today's solid circle wins (no ring); an out-of-month day dims the ring like the rest of its content. */
-.day.is-off:not(.is-today) .num { box-shadow: inset 0 0 0 2px var(--teal); }
-.day.is-off.is-out:not(.is-today) .num { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--teal) 55%, transparent); }
 .hol-row { display: none; }
 
 .skel {

@@ -1,5 +1,5 @@
-import * as data from './data.js?v=26';
-import { holidayOn } from './holidays.js?v=26';
+import * as data from './data.js?v=27';
+import { holidayOn } from './holidays.js?v=27';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -26,6 +26,7 @@ const state = {
   doneOpen: false, // the folded "N done" row is opened on the day on screen
   pushReady: false, // this phone is set up to receive reminders
   started: false,
+  paintedToday: '', // the "today" the screen was last drawn with; if it has turned since, coming back redraws
 };
 let loadToken = 0;
 
@@ -329,7 +330,8 @@ async function load({ quiet = false } = {}) {
     if (data.isAuthError(error)) return renderLogin();
     state.loadError = true;
   }
-  const changed = state.loading || state.loadError !== hadError || rangeSignature(from, to) !== before;
+  // The date turning over (midnight while the app sat in the background) counts as a change: today's circle moves.
+  const changed = state.loading || state.loadError !== hadError || rangeSignature(from, to) !== before || state.paintedToday !== todayISO();
   const replacesSkeleton = state.loading;
   state.loading = false;
   if (changed && replacesSkeleton && isDay) swapIn(renderContent);
@@ -522,7 +524,14 @@ function showDeleted(id) {
   setTimeout(renderContent, 240);
 }
 
-const renderContent = () => (state.view === 'day' ? (renderTasks(), renderAgenda()) : renderGrid());
+function renderContent() {
+  state.paintedToday = todayISO();
+  if (state.view !== 'day') return renderGrid();
+  const head = root.querySelector('.day-head');
+  if (head) fillDayHead(root, state.date); // the "today" pill in the title
+  renderTasks();
+  renderAgenda();
+}
 const dayTitle = (date) => `יום ${DAY_NAMES[fromISO(date).getDay()]}`;
 
 // index.html starts with a static skeleton (.boot). The first screen takes its place without the usual
@@ -645,6 +654,7 @@ function renderGrid(direction = 0) {
   if (!grid) return;
   const focused = document.activeElement?.dataset?.date;
   const today = todayISO();
+  state.paintedToday = today;
   const skeleton = state.loading && !state.loaded.has(monthKey(state.year, state.month));
   const openCounts = openTaskCounts();
 
@@ -670,7 +680,7 @@ function renderGrid(direction = 0) {
             ${ev.kind ? `<span class="k">${icon[ev.kind]}</span>` : ''}${ev.time ? `<span class="t">${ev.time}</span>` : ''}<span class="n">${escapeHTML(ev.title)}</span>
           </span>`).join(''); // all of them; fitChips keeps what fits the square
     return `
-      <button class="day${cell.inMonth ? '' : ' is-out'}${isToday ? ' is-today' : ''}${hol?.off ? ' is-off' : ''}" data-action="open-day" data-date="${cell.iso}" aria-label="${label}">
+      <button class="day${cell.inMonth ? '' : ' is-out'}${isToday ? ' is-today' : ''}" data-action="open-day" data-date="${cell.iso}" aria-label="${label}">
         <span class="day-top"><span class="num">${cell.day}</span>${hol ? `<span class="hol-mark is-${hol.type}" aria-hidden="true">${holIcon(hol)}</span>` : ''}${tasks ? `<span class="tmark" aria-hidden="true">${icon.circle}${taskCount(tasks)}</span>` : ''}</span>
         <span class="marks" aria-hidden="true">${marks}</span>
         <span class="chips" aria-hidden="true">${hol ? `<span class="hol-row is-${hol.type}${hol.off ? ' is-off' : ''}"${hol.off ? ` title="${hol.name} · ${OFF_WORDS}"` : ''}>${holIcon(hol)}<span class="n">${hol.name}</span></span>` : ''}${chips}</span>
@@ -1077,6 +1087,7 @@ function renderDay(direction) {
   root.querySelector('.back-label').textContent = MONTHS[state.month];
   root.querySelector('.back-link').setAttribute('aria-label', `חזרה ל${MONTHS[state.month]} ${state.year}`);
   fillDayHead(root, state.date);
+  state.paintedToday = todayISO();
   animate(root.querySelector('.day-head'), direction);
   renderTasks(direction);
   renderAgenda(direction);
