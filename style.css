@@ -973,6 +973,13 @@ button.row:focus-visible { outline-offset: -2px; }
 .vt-swap .shell[data-view="day"] { view-transition-name: none; }
 ::view-transition-old(root) { animation: vt-out .24s ease-out both; }
 ::view-transition-new(root) { animation: vt-in .34s ease-out both; }
+/* Phone, a day whose data hasn't arrived (setBlank in app.js): no gray placeholders. The heading and date show;
+   the tasks and events areas are empty and transparent, then fade in by themselves (opacity only, nothing moves,
+   taps are never blocked once they are there). */
+.day-body.is-blank .tasks-block,
+.day-body.is-blank .agenda-card { opacity: 0; animation: none; pointer-events: none; }
+.day-body.is-reveal .tasks-block,
+.day-body.is-reveal .agenda-card { animation: fade .25s ease-out both; }
 /* Leaving a day (route() in app.js): the day is not pictured on its own; the whole screen dissolves into the month.
    Same length and the same curve both ways, so the two layers always add up to one full screen: no dip. */
 .vt-fade .shell[data-view="day"] { view-transition-name: none; }

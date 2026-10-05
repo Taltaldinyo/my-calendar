@@ -1,5 +1,5 @@
-import * as data from './data.js?v=30';
-import { holidayOn } from './holidays.js?v=30';
+import * as data from './data.js?v=31';
+import { holidayOn } from './holidays.js?v=31';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -174,6 +174,28 @@ let routeTransition = null;
 // instead of a hard swap. The lists are rarely as tall as the placeholders, so a hard swap moves
 // everything below them in one jump (the cards, the "events" title). Without view-transition
 // support, with reduced motion, or while the day is still opening, it just swaps.
+// On the phone, a day whose data hasn't arrived shows no gray placeholders: the heading and date are there, the two areas
+// (tasks, events) are empty and transparent, and they fade in once the data is here (setBlank). The day that opened
+// straight from index.html's static opening skeleton (bootDay) keeps its placeholders, as before.
+let bootDay = false;
+let keepSkeleton = false;
+let revealTimer;
+const isBlank = (waiting, skeleton) => skeleton && !waiting && !keepSkeleton && isPhone();
+
+function setBlank(on) {
+  const body = root.querySelector('.shell[data-view="day"] .day-body');
+  if (!body) return;
+  const was = body.classList.contains('is-blank');
+  body.classList.toggle('is-blank', on);
+  // The areas' own entrance (rise) would show them empty; the fade-in below replaces it.
+  if (on) body.querySelectorAll('.tasks-block, .agenda-card').forEach((el) => el.classList.remove('view-enter'));
+  if (was && !on && !reducedMotion()) {
+    replay(body, 'is-reveal');
+    clearTimeout(revealTimer);
+    revealTimer = setTimeout(() => body.classList.remove('is-reveal'), 320);
+  }
+}
+
 function swapIn(draw) {
   if (!document.startViewTransition || reducedMotion() || routeTransition) return draw();
   document.documentElement.classList.add('vt-swap');
@@ -332,10 +354,14 @@ async function load({ quiet = false } = {}) {
   const known = isDay ? isKnown(day) : state.loaded.has(month);
   const before = rangeSignature(from, to);
   const hadError = state.loadError;
+  const fromBoot = bootDay; // the day opened straight from the static opening skeleton keeps its placeholders (see keepSkeleton)
+  bootDay = false;
 
   if (!known && !quiet) {
     state.loading = true;
+    keepSkeleton = fromBoot;
     renderContent();
+    keepSkeleton = false;
   }
   try {
     await fetchRange(from, to);
@@ -351,10 +377,12 @@ async function load({ quiet = false } = {}) {
   // On the phone, "replacing a skeleton" means loading placeholders really on the day's screen. state.loading can stay on
   // after a month load was replaced by a day load; when that day had opened with real data, a cross-fade over identical
   // content only blocked taps. (The computer keeps the general flag, exactly as before.)
-  const replacesSkeleton = isPhone() && isDay ? Boolean(root.querySelector('.shell[data-view="day"] .skel')) : state.loading;
+  // A day that opened blank on the phone (no placeholders, see setBlank) is filled in place: the areas fade in by themselves.
+  const blank = isPhone() && isDay && Boolean(root.querySelector('.shell[data-view="day"] .day-body.is-blank'));
+  const replacesSkeleton = blank || (isPhone() && isDay ? Boolean(root.querySelector('.shell[data-view="day"] .skel')) : state.loading);
   const changed = replacesSkeleton || state.loadError !== hadError || rangeSignature(from, to) !== before || state.paintedToday !== todayISO();
   state.loading = false;
-  if (changed && replacesSkeleton && isDay) swapIn(renderContent);
+  if (changed && replacesSkeleton && isDay && !blank) swapIn(renderContent);
   else if (changed) renderContent(); // nothing new: keep the screen as is, so nothing flickers
   if (!isDay && !state.loadError) prefetchAround();
 }
@@ -1092,7 +1120,7 @@ function renderDay(direction) {
         </div></div></div>
         ${dockHTML}
       </div>`;
-    if (fromBoot) skipEntrance();
+    if (fromBoot) { skipEntrance(); bootDay = true; }
     root.querySelector('.day-title').focus({ preventScroll: true });
     renderPushCard();
     quickAdd = setupQuickAdd(root.querySelector('.quick-add'));
@@ -1294,6 +1322,8 @@ function renderTasks(direction = 0, fresh = null, scope = root, date = state.dat
   const list = block.querySelector('.task-list');
   const past = date < todayISO();
   const skeleton = (waiting || state.loading) && !isKnown(date);
+  const blank = isBlank(waiting, skeleton);
+  if (!waiting) setBlank(blank);
   const { open, done } = tasksOn(date);
 
   // A past day takes no new tasks - they would move to today at once. It keeps what was done on it.
@@ -1303,7 +1333,9 @@ function renderTasks(direction = 0, fresh = null, scope = root, date = state.dat
 
   const focused = !waiting && document.activeElement?.closest?.('.task-list [data-action]');
   const refocus = focused && `[data-action="${focused.dataset.action}"]${focused.dataset.id ? `[data-id="${focused.dataset.id}"]` : ''}`;
-  if (skeleton) {
+  if (blank) {
+    list.innerHTML = '';
+  } else if (skeleton) {
     list.innerHTML = [58, 42].map((w) => `
       <li class="task" aria-hidden="true"><span class="task-check"><span class="ring"></span></span><span class="skel" style="width:${w}%"></span></li>`).join('');
   } else {
@@ -1342,7 +1374,9 @@ function renderAgenda(direction = 0, scope = root, date = state.date) {
   const events = state.byDate.get(date) ?? [];
 
   const skeleton = (waiting || state.loading) && !isKnown(date);
-  if (skeleton) {
+  if (isBlank(waiting, skeleton)) {
+    agenda.innerHTML = '';
+  } else if (skeleton) {
     agenda.innerHTML = [72, 54, 64].map((w) => `
       <div class="row" aria-hidden="true"><span class="skel when-skel"></span><span class="skel" style="width:${w}%"></span></div>`).join('');
   } else if (events.length === 0) {
