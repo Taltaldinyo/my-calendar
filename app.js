@@ -1,5 +1,5 @@
-import * as data from './data.js?v=28';
-import { holidayOn } from './holidays.js?v=28';
+import * as data from './data.js?v=29';
+import { holidayOn } from './holidays.js?v=29';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -348,8 +348,11 @@ async function load({ quiet = false } = {}) {
     state.loadError = true;
   }
   // The date turning over (midnight while the app sat in the background) counts as a change: today's circle moves.
-  const changed = state.loading || state.loadError !== hadError || rangeSignature(from, to) !== before || state.paintedToday !== todayISO();
-  const replacesSkeleton = state.loading;
+  // On the phone, "replacing a skeleton" means loading placeholders really on the day's screen. state.loading can stay on
+  // after a month load was replaced by a day load; when that day had opened with real data, a cross-fade over identical
+  // content only blocked taps. (The computer keeps the general flag, exactly as before.)
+  const replacesSkeleton = isPhone() && isDay ? Boolean(root.querySelector('.shell[data-view="day"] .skel')) : state.loading;
+  const changed = replacesSkeleton || state.loadError !== hadError || rangeSignature(from, to) !== before || state.paintedToday !== todayISO();
   state.loading = false;
   if (changed && replacesSkeleton && isDay) swapIn(renderContent);
   else if (changed) renderContent(); // nothing new: keep the screen as is, so nothing flickers

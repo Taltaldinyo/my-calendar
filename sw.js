@@ -14,7 +14,7 @@
 // WHAT IS CAUGHT: only GET requests to this site, inside this folder. Supabase, and anything else on
 // another address, never goes through here. sw.js itself is always fetched by the browser directly.
 
-const VERSION = 28;
+const VERSION = 29;
 const CACHE = `my-calendar-v${VERSION}`;
 const SCOPE = self.registration.scope; // https://.../my-calendar/ - also what "./" (index.html) is
 const PRECACHE = [
