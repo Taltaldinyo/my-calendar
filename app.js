@@ -1,5 +1,5 @@
-import * as data from './data.js?v=29';
-import { holidayOn } from './holidays.js?v=29';
+import * as data from './data.js?v=30';
+import { holidayOn } from './holidays.js?v=30';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];

@@ -345,6 +345,13 @@ label {
 .day:active .num { transform: scale(.92); }
 .day .num { transition: transform .14s var(--ease-out); }
 
+/* Phone only: coming back from a day, the app focuses the square you left (renderMonth), and the
+   keyboard outline on it looked like a grey band. A touch screen has no keyboard to guide, so
+   no outline there; the computer and any device with a fine pointer keep it. */
+@media (pointer: coarse) {
+  .day:focus-visible { outline: none; }
+}
+
 .day .num {
   display: grid;
   place-items: center;
