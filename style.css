@@ -980,7 +980,7 @@ button.row:focus-visible { outline-offset: -2px; }
 .day-body.is-blank .agenda-card { opacity: 0; animation: none; pointer-events: none; }
 .day-body.is-reveal .tasks-block,
 .day-body.is-reveal .agenda-card { animation: fade .25s ease-out both; }
-/* Leaving a day (route() in app.js): the day is not pictured on its own; the whole screen dissolves into the month.
+/* Leaving a day, and on the phone also opening one (route() in app.js): the day is not pictured on its own; the whole screen dissolves into the next.
    Same length and the same curve both ways, so the two layers always add up to one full screen: no dip. */
 .vt-fade .shell[data-view="day"] { view-transition-name: none; }
 .vt-fade::view-transition-old(root) { animation: vt-out .28s ease-in-out both; }

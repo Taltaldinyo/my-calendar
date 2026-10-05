@@ -1,5 +1,5 @@
-import * as data from './data.js?v=31';
-import { holidayOn } from './holidays.js?v=31';
+import * as data from './data.js?v=32';
+import { holidayOn } from './holidays.js?v=32';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -223,15 +223,17 @@ function route({ traversal = false } = {}) {
     return;
   }
 
-  // Leaving a day = a soft fade into the month (no shrinking into the square). Opening a day still grows out of its square.
-  const fade = leavingDay;
+  // Leaving a day = a soft fade into the month (no shrinking into the square). On the phone, opening a day is the same
+  // soft fade of the whole screen (v32: the grow-out left an empty gap and a jump on the iPhone). On the computer,
+  // opening a day still grows out of its square.
+  const fade = leavingDay || (next.view === 'day' && isPhone());
   if (fade) document.documentElement.classList.add('vt-fade');
   const date = next.view === 'day' ? next.date : state.date;
   const nameSquare = () => {
     const square = root.querySelector(`.day[data-date="${date}"]`);
     if (square) square.style.viewTransitionName = 'day';
   };
-  if (next.view === 'day') nameSquare();
+  if (next.view === 'day' && !fade) nameSquare();
   const transition = document.startViewTransition(() => {
     applyRoute(next);
     // The transition is the entrance. Left in place, the screen's own fade-in (`rise`) would start the moment
