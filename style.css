@@ -966,6 +966,11 @@ button.row:focus-visible { outline-offset: -2px; }
 .vt-swap .shell[data-view="day"] { view-transition-name: none; }
 ::view-transition-old(root) { animation: vt-out .24s ease-out both; }
 ::view-transition-new(root) { animation: vt-in .34s ease-out both; }
+/* Leaving a day (route() in app.js): the day is not pictured on its own; the whole screen dissolves into the month.
+   Same length and the same curve both ways, so the two layers always add up to one full screen: no dip. */
+.vt-fade .shell[data-view="day"] { view-transition-name: none; }
+.vt-fade::view-transition-old(root) { animation: vt-out .28s ease-in-out both; }
+.vt-fade::view-transition-new(root) { animation: vt-in .28s ease-in-out both; }
 
 /* ---------- just saved: the event settles into place */
 

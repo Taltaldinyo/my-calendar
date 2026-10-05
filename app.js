@@ -1,5 +1,5 @@
-import * as data from './data.js?v=27';
-import { holidayOn } from './holidays.js?v=27';
+import * as data from './data.js?v=28';
+import { holidayOn } from './holidays.js?v=28';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -141,7 +141,7 @@ function enterApp() {
   if (!state.started) {
     state.started = true;
     syncPush().catch(() => {}).finally(renderPushCard);
-    window.addEventListener('hashchange', route);
+    window.addEventListener('hashchange', () => route({ traversal: true }));
     // Days turn with a sideways swipe anywhere on the screen, empty space under a short day included.
     enableDayPaging(root);
     document.addEventListener('visibilitychange', () => {
@@ -183,11 +183,27 @@ function swapIn(draw) {
 }
 
 // Opening a day grows it out of the tapped square; going back shrinks it into the square again.
-function route() {
+// Leaving a day by the phone's own back (edge swipe, back button) already plays the phone's own slide-away: the app
+// must not add a second animation on top of it (it replayed the day as a ghost after the slide and looked stuck).
+// The app's own "back to the month" button sets this, so that one gets the app's fade.
+let backByApp = false;
+
+function route({ traversal = false } = {}) {
   const next = parseRoute();
   const switching = next.view !== state.view && root.querySelector('.shell');
+  const leavingDay = switching && state.view === 'day' && next.view === 'month';
+  const byPhone = traversal && !backByApp;
+  if (traversal) backByApp = false;
   if (!switching || !document.startViewTransition || reducedMotion()) return applyRoute(next);
+  if (leavingDay && byPhone) {
+    applyRoute(next);
+    skipEntrance(); // under the phone's slide: no fade-in of our own on top
+    return;
+  }
 
+  // Leaving a day = a soft fade into the month (no shrinking into the square). Opening a day still grows out of its square.
+  const fade = leavingDay;
+  if (fade) document.documentElement.classList.add('vt-fade');
   const date = next.view === 'day' ? next.date : state.date;
   const nameSquare = () => {
     const square = root.querySelector(`.day[data-date="${date}"]`);
@@ -199,12 +215,13 @@ function route() {
     // The transition is the entrance. Left in place, the screen's own fade-in (`rise`) would start the moment
     // the transition ends, and the whole screen would blink: transparent, then back (opening or leaving a day).
     skipEntrance();
-    if (next.view === 'month') nameSquare();
+    if (next.view === 'month' && !fade) nameSquare();
   });
   transition.ready.catch(() => {}); // skipped (e.g. the page isn't being drawn): the screen still switches, just without motion
   routeTransition = transition;
   transition.finished.finally(() => {
     if (routeTransition === transition) routeTransition = null;
+    document.documentElement.classList.remove('vt-fade');
     root.querySelectorAll('.day[style]').forEach((el) => el.style.removeProperty('view-transition-name'));
   });
 }
@@ -256,7 +273,7 @@ function openDay(date) {
 // moving to another month's day (arrows, a gray square, saving an event on another date).
 function backToMonth() {
   const month = monthKey(state.year, state.month);
-  if (state.openedFrom === month) history.back(); // that month is right under us: keeps the phone's back button in step
+  if (state.openedFrom === month) { backByApp = true; setTimeout(() => { backByApp = false; }, 1500); history.back(); } // that month is right under us: keeps the phone's back button in step
   else go(`#/${month}`);
 }
 
