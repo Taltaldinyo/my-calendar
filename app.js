@@ -1,5 +1,5 @@
-import * as data from './data.js?v=33';
-import { holidayOn } from './holidays.js?v=33';
+import * as data from './data.js?v=34';
+import { holidayOn } from './holidays.js?v=34';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -283,10 +283,10 @@ function shiftDay(delta) {
 }
 
 // Another day: slides in from the side when the day screen is up (arrows, "today"), else just switches.
-// Phone, page scrolled down (v33): no sliding - the neighbour would arrive scrolled to the same spot and then jump to the top.
-// The whole day dissolves into the next one, which opens from the top.
+// Phone (v34): every change of day - swipe, arrows, "today" - is the same soft dissolve of the whole day, scrolled or not,
+// and the new day always opens from the top. No sliding there. The computer keeps its slide.
 function goToDay(date) {
-  if (date !== state.date && state.view === 'day' && scrolledDown() && !reducedMotion()) return fadeToDay(date);
+  if (date !== state.date && state.view === 'day' && isPhone() && !reducedMotion()) return fadeToDay(date);
   if (date !== state.date && canSlide()) return slideTo(date);
   go(`#/${date}`);
   status.textContent = dayTitle(date) + ', ' + formatDate(date);
@@ -849,9 +849,6 @@ const dayTrack = () => root.querySelector('.shell[data-view="day"] .day-track');
 const canSlide = () => state.view === 'day' && !reducedMotion() && !pager.busy && Boolean(dayTrack());
 const shiftX = (px) => `translate3d(${px}px, 0, 0)`;
 
-// Phone only: the page is scrolled down by more than a few pixels.
-const SCROLLED_PX = 4;
-const scrolledDown = () => isPhone() && window.scrollY > SCROLLED_PX;
 let fading = false; // a day-to-day dissolve is running
 let fadeQueued = 0;
 
@@ -966,19 +963,10 @@ function dropSpareGhosts() {
   for (const [sign, { el }] of pager.spare) if (el !== pager.live) { el.remove(); pager.spare.delete(sign); }
 }
 
+// Phone (v34): the day no longer follows the finger, so no neighbour is drawn ahead of time. (The computer only slides
+// from the arrows, where the neighbour is built when needed - showGhost.)
 function prepareGhosts() {
   clearTimeout(pager.prep);
-  if (state.view !== 'day' || reducedMotion() || !isPhone()) return;
-  pager.prep = setTimeout(() => {
-    const track = dayTrack();
-    if (!track || pager.busy || pager.live || document.visibilityState !== 'visible') return;
-    const make = (sign, then) => {
-      const date = addDays(state.date, sign);
-      if (pager.spare.get(sign)?.date !== date) buildGhost(track, sign, date);
-      if (then) pager.prep = setTimeout(() => { if (!pager.busy && !pager.live && dayTrack() === track) make(-1); }, 30);
-    };
-    make(1, true);
-  }, 150);
 }
 
 // Let go (or tap an arrow): finish the slide to the neighbour, or come back. Moves nothing but the transform.
@@ -1059,11 +1047,12 @@ function enableDayPaging(el) {
   };
   const release = (cur, now, cancelled) => {
     const { dx, width, track } = cur;
-    if (!dx) return restPaging();
+    if (!dx) return cur.still ? undefined : restPaging();
     const sign = dx > 0 ? 1 : -1;
     const v = cancelled ? 0 : velocity(cur.samples, now) * sign; // speed in the direction of the drag
     const far = Math.abs(dx + cur.lead); // the whole way the finger went, including the first few pixels before the page took hold
     const commit = !cancelled && ((v > 0.3 && far > 24) || (far > width / 3 && v > -0.2));
+    if (cur.still) { if (commit) shiftDay(sign); return; } // phone (v34): nothing followed the finger, the day just dissolves into the next
     settle(track, dx, commit, sign, addDays(state.date, sign));
   };
 
@@ -1075,7 +1064,7 @@ function enableDayPaging(el) {
     const track = dayTrack();
     if (!track) return;
     const t = e.touches[0];
-    g = { x: t.clientX, y: t.clientY, axis: '', ox: t.clientX, dx: 0, sign: 0, width: 0, track, reduced: reducedMotion() || scrolledDown(), at: e.timeStamp, samples: [{ x: t.clientX, t: e.timeStamp }] };
+    g = { x: t.clientX, y: t.clientY, axis: '', ox: t.clientX, dx: 0, sign: 0, width: 0, track, reduced: reducedMotion(), still: isPhone() && !reducedMotion(), at: e.timeStamp, samples: [{ x: t.clientX, t: e.timeStamp }] };
   }, { passive: true });
 
   el.addEventListener('touchmove', (e) => {
@@ -1086,7 +1075,7 @@ function enableDayPaging(el) {
     g.lx = t.clientX;
     g.ly = t.clientY; // where the finger was last seen: touchend's own position isn't always reported
     if (g.samples.length > 8) g.samples.shift();
-    if (g.reduced) return; // reduced motion, or the page scrolled down (v33): no following the finger, the day just switches when it is let go
+    if (g.reduced) return; // reduced motion: no following the finger, the day just switches when it is let go
     if (!g.axis) {
       const dx = t.clientX - g.x;
       const dy = t.clientY - g.y;
@@ -1097,11 +1086,13 @@ function enableDayPaging(el) {
       g.lead = dx; // the page starts moving from here, not with a jump
       g.width = g.track.parentElement.offsetWidth;
       g.sign = dx > 0 ? 1 : -1;
+      if (g.still) return; // phone (v34): the direction is read and the axis is locked, but nothing moves with the finger
       g.track.style.willChange = 'transform';
       showGhost(g.track, g.sign, addDays(state.date, g.sign), g.width); // in place now, before the page starts to move
       return;
     }
     g.dx = Math.max(-g.width, Math.min(g.width, t.clientX - g.ox));
+    if (g.still) return;
     const sign = g.dx > 0 ? 1 : g.dx < 0 ? -1 : g.sign;
     if (sign !== g.sign) { g.sign = sign; showGhost(g.track, sign, addDays(state.date, sign), g.width); } // dragged back past the start: the other neighbour
     g.track.style.transform = shiftX(g.dx);
@@ -1111,7 +1102,7 @@ function enableDayPaging(el) {
     const cur = g;
     g = null;
     if (!cur) return;
-    if (cur.reduced) { // the old rule: a quick sideways flick of 50px or more (on a scrolled page the day then dissolves, see goToDay)
+    if (cur.reduced) { // the old rule: a quick sideways flick of 50px or more
       const dx = (cur.lx ?? cur.x) - cur.x;
       const dy = (cur.ly ?? cur.y) - cur.y;
       if (e.timeStamp - cur.at < 800 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) shiftDay(dx > 0 ? 1 : -1);
@@ -1309,7 +1300,7 @@ function toggleTask(button) {
   button.setAttribute('aria-checked', String(Boolean(after.doneOn)));
   renderTaskCount();
   clearTimeout(settleTimer);
-  settleTimer = setTimeout(settleTasks, 700);
+  settleTimer = setTimeout(settleTasks, isPhone() && !reducedMotion() ? 250 : 700); // phone (v34): 0.25s before the move, as the move itself is smooth
   if (!after.doneOn && shownOn(after) !== state.date) showToast('המשימה חזרה להיום');
 
   taskWrite(() => data.updateTask(task.id, { doneOn: after.doneOn }))
@@ -1324,7 +1315,7 @@ function toggleTask(button) {
 
 // A ticked task moves to its place (the end of the list, or back among the open ones) a moment after the tick. On the
 // phone (v33) it is a smooth move, not a jump: every row that stays is measured before and after the redraw, and slides
-// from where it was to where it is now (about 0.3s). The tick itself and the 0.7s wait are as before. Reduced motion: no move.
+// from where it was to where it is now (about 0.3s), after a 0.25s wait (0.7s on the computer and with reduced motion).
 // Rows still moving from an earlier slide are measured where they are on screen, so nothing jumps if this runs twice.
 function settleTasks() {
   const list = root.querySelector('.task-list');
@@ -1797,23 +1788,6 @@ function createSheet() {
     input.addEventListener('change', sync);
     input.addEventListener('click', () => { try { input.showPicker?.(); } catch { /* the browser opens its own */ } });
   }
-  // Phone, new event (v33): tapping the empty start time opens the picker on 07:00, not on the current time. The value is
-  // set on the touch itself, before the phone's picker opens; a touch that turns into a scroll takes it back.
-  // An existing event, the end time and the computer are untouched. The "no time" link still clears it, as before.
-  let seeded = false;
-  inputs.time.addEventListener('pointerdown', () => {
-    seeded = false;
-    if (!isPhone() || editing || inputs.time.value) return;
-    inputs.time.value = '07:00';
-    seeded = true;
-    sync();
-  });
-  inputs.time.addEventListener('pointercancel', () => {
-    if (!seeded) return;
-    seeded = false;
-    inputs.time.value = '';
-    sync();
-  });
   $('[data-clear-time]').addEventListener('click', () => { inputs.time.value = ''; sync(); inputs.time.focus(); });
   inputs.repeat.addEventListener('change', () => {
     if (inputs.repeat.checked && !pickedDays().length && inputs.date.value) setPick(picks[fromISO(inputs.date.value).getDay()], true);
