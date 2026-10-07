@@ -1,5 +1,5 @@
-import * as data from './data.js?v=34';
-import { holidayOn } from './holidays.js?v=34';
+import * as data from './data.js?v=35';
+import { holidayOn } from './holidays.js?v=35';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -220,6 +220,13 @@ function route({ traversal = false } = {}) {
   if (leavingDay && byPhone) {
     applyRoute(next);
     skipEntrance(); // under the phone's slide: no fade-in of our own on top
+    return;
+  }
+  // v35: the same going forward. A swipe from the edge (or the browser's forward button) that reopens a day plays the
+  // phone's own slide; the app's fade on top of it showed the month again for a moment (phone only, the computer keeps its grow-out).
+  if (byPhone && next.view === 'day' && isPhone()) {
+    applyRoute(next);
+    skipEntrance();
     return;
   }
 
