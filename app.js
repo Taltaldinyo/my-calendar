@@ -1,5 +1,5 @@
-import * as data from './data.js?v=35';
-import { holidayOn } from './holidays.js?v=35';
+import * as data from './data.js?v=36';
+import { holidayOn } from './holidays.js?v=36';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -210,12 +210,20 @@ function swapIn(draw) {
 // The app's own "back to the month" button sets this, so that one gets the app's fade.
 let backByApp = false;
 
+// v36: a finger that starts within this distance of the screen's left or right edge belongs to the iPhone (its edge swipe
+// goes back / forward). Phone only; the app never follows such a touch, so one gesture can't be both "back" and "change day".
+const EDGE_PX = 24;
+const fromEdge = (t) => isPhone() && (t.clientX <= EDGE_PX || t.clientX >= window.innerWidth - EDGE_PX);
+
 function route({ traversal = false } = {}) {
   const next = parseRoute();
   const switching = next.view !== state.view && root.querySelector('.shell');
   const leavingDay = switching && state.view === 'day' && next.view === 'month';
   const byPhone = traversal && !backByApp;
   if (traversal) backByApp = false;
+  // v36 safety net: a navigation made by the phone itself (edge swipe, back/forward) must not be overwritten by a dissolve
+  // or a queued day change of ours that was already under way (it would replace the month with another day).
+  if (byPhone && isPhone()) { fading = false; fadeQueued = 0; }
   if (!switching || !document.startViewTransition || reducedMotion()) return applyRoute(next);
   if (leavingDay && byPhone) {
     applyRoute(next);
@@ -828,7 +836,7 @@ function enableSwipe(el, shift) {
   let start = null;
   el.addEventListener('touchstart', (e) => {
     const t = e.touches[0];
-    start = e.touches.length === 1 && !e.target.closest('input, textarea') ? { x: t.clientX, y: t.clientY, at: Date.now() } : null;
+    start = e.touches.length === 1 && !e.target.closest('input, textarea') && !fromEdge(t) ? { x: t.clientX, y: t.clientY, at: Date.now() } : null;
   }, { passive: true });
   el.addEventListener('touchend', (e) => {
     if (!start) return;
@@ -1071,6 +1079,7 @@ function enableDayPaging(el) {
     const track = dayTrack();
     if (!track) return;
     const t = e.touches[0];
+    if (fromEdge(t)) return; // v36: from the screen's edge = the iPhone's own back/forward, not a change of day
     g = { x: t.clientX, y: t.clientY, axis: '', ox: t.clientX, dx: 0, sign: 0, width: 0, track, reduced: reducedMotion(), still: isPhone() && !reducedMotion(), at: e.timeStamp, samples: [{ x: t.clientX, t: e.timeStamp }] };
   }, { passive: true });
 
