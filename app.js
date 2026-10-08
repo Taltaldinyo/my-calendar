@@ -1,5 +1,5 @@
-import * as data from './data.js?v=36';
-import { holidayOn } from './holidays.js?v=36';
+import * as data from './data.js?v=37';
+import { holidayOn } from './holidays.js?v=37';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -1639,6 +1639,7 @@ function sheetKit(el, { setBusy }) {
     closing = false;
     el.classList.remove('is-closing');
     el.showModal();
+    el.scrollTo({ top: 0, behavior: 'instant' }); // the same element is reused: always open at the top, not where the last use was left
     trackKeyboard(true);
   }
 
@@ -1951,8 +1952,8 @@ function createSheet() {
     sync();
     showSheet();
     // A new event starts with typing; an existing one may just be deleted, so don't pop the keyboard.
-    if (event) $('#sheet-title').focus();
-    else inputs.title.focus();
+    if (event) $('#sheet-title').focus({ preventScroll: true });
+    else inputs.title.focus({ preventScroll: true });
   }
 
   return { open };
