@@ -438,6 +438,7 @@ label {
 
 .page-ghost.turn-away { animation: page-away .56s cubic-bezier(.45, .05, .35, 1) forwards; }
 .page-ghost.turn-away::after { animation: page-shade .56s ease-in forwards; }
+.page-ghost.fade-away { animation: ghost-fade .22s ease-out forwards; }
 .page-ghost.lie-under { z-index: 0; }
 
 .grid.turn-back {
@@ -1608,6 +1609,7 @@ html[data-boot="day-past"] .boot-day .tasks-block { display: none; } /* a past d
 @keyframes page-away { to { transform: rotateY(100deg); } }
 @keyframes page-back { from { transform: rotateY(100deg); } }
 @keyframes page-shade { to { opacity: 1; } }
+@keyframes ghost-fade { to { opacity: 0; } }
 @keyframes title-in { from { opacity: 0; transform: translateY(6px); } }
 @keyframes vt-out { to { opacity: 0; } }
 @keyframes vt-in { from { opacity: 0; } }

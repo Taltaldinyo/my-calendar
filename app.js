@@ -1,5 +1,5 @@
-import * as data from './data.js?v=38';
-import { holidayOn } from './holidays.js?v=38';
+import * as data from './data.js?v=39';
+import { holidayOn } from './holidays.js?v=39';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -803,7 +803,7 @@ const gridSize = new ResizeObserver(([entry]) => {
   if (wide.matches && Math.abs(entry.contentRect.height - fittedHeight) >= 1) renderGrid();
 });
 
-// Changing month turns a page, like a book read right to left: going forward, the current
+// On the phone, changing month turns a page, like a book read right to left: going forward, the current
 // page lifts from its left edge and turns over to the right; going back, the previous page
 // turns back over from the right and lies down on top.
 function turnPage(grid, direction, paint) {
@@ -825,8 +825,11 @@ function turnPage(grid, direction, paint) {
   paint();
   card.append(ghost);
 
-  const moving = direction > 0 ? ghost : grid;
-  if (direction > 0) ghost.classList.add('turn-away');
+  // The computer (v39): the 3D turn stuttered on a full-size window, so the old month just fades away over the new one.
+  const fade = !isPhone();
+  const moving = fade || direction > 0 ? ghost : grid;
+  if (fade) ghost.classList.add('fade-away');
+  else if (direction > 0) ghost.classList.add('turn-away');
   else {
     ghost.classList.add('lie-under');
     replay(grid, 'turn-back');
