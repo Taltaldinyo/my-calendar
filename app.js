@@ -1,5 +1,5 @@
-import * as data from './data.js?v=37';
-import { holidayOn } from './holidays.js?v=37';
+import * as data from './data.js?v=38';
+import { holidayOn } from './holidays.js?v=38';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -423,10 +423,24 @@ function prefetchMonth(year, month) {
   return fetching;
 }
 
-function prefetchAround() {
-  for (const delta of [-1, 1]) {
-    const d = new Date(state.year, state.month + delta, 1);
-    prefetchMonth(d.getFullYear(), d.getMonth());
+// The phone keeps one month each side. The computer (v38) takes a whole year each side, nearest first and two
+// at a time, so quick clicking on the arrows never reaches a month that has not arrived (gray placeholders, then a flicker).
+// A newer month on screen restarts the chain from there; months already fetched are skipped.
+const PREFETCH_MONTHS = 12;
+let prefetchRun = 0;
+
+async function prefetchAround() {
+  const run = ++prefetchRun;
+  const { year, month } = state;
+  const reach = isPhone() ? 1 : PREFETCH_MONTHS;
+  const order = [];
+  for (let step = 1; step <= reach; step++) order.push(1 * step, -1 * step);
+  for (let i = 0; i < order.length; i += 2) {
+    if (run !== prefetchRun) return;
+    await Promise.all(order.slice(i, i + 2).map((delta) => {
+      const d = new Date(year, month + delta, 1);
+      return prefetchMonth(d.getFullYear(), d.getMonth());
+    }));
   }
 }
 
