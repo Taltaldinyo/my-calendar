@@ -2,7 +2,7 @@
 // The Supabase library is a copy kept in vendor/ (version 2.117.0), loaded by index.html.
 // Not from a public CDN on purpose: nothing outside the repo can change what runs here.
 const { createClient } = window.supabase;
-import { SUPABASE_URL, SUPABASE_KEY, LOGIN_EMAIL } from './config.js?v=39';
+import { SUPABASE_URL, SUPABASE_KEY, LOGIN_EMAIL } from './config.js?v=40';
 
 // Demo mode: sample events kept in memory, no sign-in. Only on this computer (localhost),
 // so the screens can be checked without the real password.
@@ -108,7 +108,8 @@ export async function deleteSeries(seriesId) {
 
 // ---------- tasks: a to-do for a day, no hours. Open ones are few, so they always come whole.
 
-const TASK_COLUMNS = 'id,title,date,priority,done_on,created_at';
+// category: 'general' | 'study' (the column must exist in the tasks table - see the migration in the project notes)
+const TASK_COLUMNS = 'id,title,date,priority,done_on,created_at,category';
 const cleanTask = (row) => ({
   id: row.id,
   title: row.title,
@@ -116,6 +117,7 @@ const cleanTask = (row) => ({
   priority: row.priority ?? 0, // 0 regular, 1 urgent, 2 very urgent
   doneOn: row.done_on ?? null, // null while open; else the day it was on screen when marked done
   createdAt: row.created_at,
+  category: row.category === 'study' ? 'study' : 'general', // anything else (or nothing) is a general task
 });
 // Only the fields given, so marking done never touches the name.
 const toTaskRow = (fields) => {
@@ -124,6 +126,7 @@ const toTaskRow = (fields) => {
   if ('date' in fields) row.date = fields.date;
   if ('priority' in fields) row.priority = fields.priority;
   if ('doneOn' in fields) row.done_on = fields.doneOn;
+  if ('category' in fields) row.category = fields.category;
   return row;
 };
 
@@ -238,11 +241,12 @@ const demoTasks = (() => {
   let nextId = 1;
   let clock = Date.now() - 86400000;
   // Rows look like the database: done_on and created_at, cleaned on the way out.
-  const make = (offset, title, priority = 0, doneOffset = null) => ({
+  const make = (offset, title, priority = 0, doneOffset = null, category = 'general') => ({
     id: `t${nextId++}`,
     title,
     date: dayFromToday(offset),
     priority,
+    category,
     done_on: doneOffset === null ? null : dayFromToday(doneOffset),
     created_at: new Date(clock += 60000).toISOString(),
   });
@@ -258,6 +262,9 @@ const demoTasks = (() => {
     make(-3, 'להגיש תרגיל 2', 2, -3),
     make(2, 'להכין מצגת לסמינר', 1),
     make(4, 'לחדש ביטוח רכב'), // a day with no events: its dot comes from the task alone
+    make(0, 'לסכם פרק 4 בחשבונאות', 0, 0, 'study'), // done today; no open study task today, so today's counts stay as before
+    make(1, 'להגיש תרגיל במימון', 1, null, 'study'),
+    make(1, 'לקרוא מאמר לסמינר', 0, null, 'study'),
   ];
   const order = (a, b) => b.priority - a.priority || a.created_at.localeCompare(b.created_at);
   return {
@@ -267,7 +274,7 @@ const demoTasks = (() => {
     },
     async add(row) {
       await wait();
-      const task = { id: `t${nextId++}`, priority: 0, done_on: null, created_at: new Date().toISOString(), ...row };
+      const task = { id: `t${nextId++}`, priority: 0, category: 'general', done_on: null, created_at: new Date().toISOString(), ...row };
       tasks.push(task);
       return cleanTask(task);
     },

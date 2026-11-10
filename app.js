@@ -1,5 +1,5 @@
-import * as data from './data.js?v=39';
-import { holidayOn } from './holidays.js?v=39';
+import * as data from './data.js?v=40';
+import { holidayOn } from './holidays.js?v=40';
 
 const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
 const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
@@ -23,6 +23,7 @@ const state = {
   highlightDot: false, // its day had nothing on it before, so the phone's dot for that day pops in
   openTasks: [], // every task not done yet, whatever its day (few, so always fetched whole)
   doneByDate: new Map(), // 'YYYY-MM-DD' -> tasks marked done on that day
+  taskTab: 'general', // 'general' | 'study': the tasks tab on screen; every time the day screen is opened it starts on general
   doneOpen: false, // the folded "N done" row is opened on the day on screen
   pushReady: false, // this phone is set up to receive reminders
   started: false,
@@ -59,6 +60,11 @@ const byTime = (a, b) => (a.time ?? '').localeCompare(b.time ?? '') || a.title.l
 
 // Tasks: very urgent first, then urgent, then regular; within each, in the order written.
 const PRIORITY_NAMES = ['רגיל', 'דחוף', 'דחוף מאוד'];
+const TASK_TABS = [
+  { key: 'general', name: 'כללי', empty: 'אין משימות כלליות ביום הזה' },
+  { key: 'study', name: 'לימודים', empty: 'אין משימות ללימודים ביום הזה' },
+];
+const categoryOf = (task) => (task.category === 'study' ? 'study' : 'general');
 const byPriority = (a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt);
 // The day a task shows on: the day it was marked done; while open, its own day - or today, once
 // that day has passed. Nothing is rewritten at night; an open task simply shows on today.
@@ -545,12 +551,23 @@ function putTask(task) {
   }
 }
 
-function tasksOn(date) {
+// The tasks of one day in one tab (the one on screen unless another is asked for).
+function tasksOn(date, tab = state.taskTab) {
   const today = todayISO();
   return {
-    open: state.openTasks.filter((t) => shownOn(t, today) === date).sort(byPriority),
-    done: [...(state.doneByDate.get(date) ?? [])].sort(byPriority),
+    open: state.openTasks.filter((t) => categoryOf(t) === tab && shownOn(t, today) === date).sort(byPriority),
+    done: (state.doneByDate.get(date) ?? []).filter((t) => categoryOf(t) === tab).sort(byPriority),
   };
+}
+
+// Moving to the other tab: a short fade of the list only (the tabs and the line below stay put).
+function switchTaskTab(tab) {
+  if (tab === state.taskTab || pager.busy) return;
+  state.taskTab = tab;
+  state.doneOpen = false;
+  renderTasks();
+  if (reducedMotion()) return;
+  root.querySelectorAll('.tasks-block .task-list, .tasks-block .tasks-empty').forEach((el) => replay(el, 'tab-fade'));
 }
 
 // How many open tasks each day shows (only today and the days ahead can have any).
@@ -589,6 +606,7 @@ root.addEventListener('click', (e) => {
     if (ev) sheet.open({ event: ev });
   }
   else if (action === 'toggle-task') toggleTask(target);
+  else if (action === 'task-tab') switchTaskTab(target.dataset.tab);
   else if (action === 'edit-task') {
     const task = findTask(target.dataset.id);
     if (task && !isUnsaved(task)) taskSheet.open(task);
@@ -1155,6 +1173,7 @@ function enableDayPaging(el) {
 
 function renderDay(direction) {
   if (!root.querySelector('.shell[data-view="day"]')) {
+    state.taskTab = 'general'; // every entrance to the day screen starts on general (sliding between days keeps the tab)
     const fromBoot = cameFromBoot();
     root.innerHTML = `
       <div class="shell" data-view="day">
@@ -1177,6 +1196,10 @@ function renderDay(direction) {
           <div class="tasks-block view-enter">
             <h2 class="section-label" id="tasks-label">משימות<span class="tasks-count"></span></h2>
             <section class="tasks-card" aria-labelledby="tasks-label">
+              <div class="task-tabs" role="group" aria-label="סוג משימות">
+                ${TASK_TABS.map((t) => `<button type="button" class="task-tab" data-action="task-tab" data-tab="${t.key}" aria-pressed="${t.key === 'general'}"><span class="tab-name">${t.name}</span><span class="tab-n" hidden></span></button>`).join('')}
+              </div>
+              <p class="tasks-empty" hidden></p>
               <ol class="task-list"></ol>
               ${quickAddHTML}
             </section>
@@ -1275,7 +1298,7 @@ function setupQuickAdd(form) {
     e.preventDefault();
     const title = input.value.trim();
     if (!title) return;
-    addTask(title, picked());
+    addTask(title, picked(), state.taskTab);
     input.value = '';
     sync();
   });
@@ -1299,12 +1322,12 @@ function setupQuickAdd(form) {
 }
 
 // Shown at once; saved on the way. If saving fails the row goes and the text returns to the line.
-function addTask(title, priority) {
+function addTask(title, priority, category) {
   const date = state.date;
-  const unsaved = { id: `new-${++unsavedIds}`, title, date, priority, doneOn: null, createdAt: new Date().toISOString() };
+  const unsaved = { id: `new-${++unsavedIds}`, title, date, priority, category, doneOn: null, createdAt: new Date().toISOString() };
   state.openTasks.push(unsaved);
   renderTasks(0, unsaved.id);
-  taskWrite(() => data.addTask({ title, date, priority }))
+  taskWrite(() => data.addTask({ title, date, priority, category }))
     .then((saved) => {
       removeTask(unsaved.id);
       putTask(saved);
@@ -1384,6 +1407,21 @@ function renderTaskCount(scope = root, date = state.date, waiting = false) {
   if (label) label.textContent = (waiting || state.loading) && !isKnown(date) ? '' : taskCountText(date);
 }
 
+// Both tabs always show their name; the one on screen is filled and bold (aria-pressed) and each carries how many
+// are still open on that day - so nothing here depends on color alone.
+function renderTaskTabs(block, date, hideCounts) {
+  for (const tab of TASK_TABS) {
+    const button = block.querySelector(`.task-tab[data-tab="${tab.key}"]`);
+    if (!button) continue;
+    const n = hideCounts ? 0 : tasksOn(date, tab.key).open.length;
+    button.setAttribute('aria-pressed', String(tab.key === state.taskTab));
+    button.setAttribute('aria-label', n ? `${tab.name}, ${n === 1 ? 'משימה פתוחה אחת' : `${n} משימות פתוחות`}` : tab.name);
+    const badge = button.querySelector('.tab-n');
+    badge.textContent = n || '';
+    badge.hidden = !n;
+  }
+}
+
 function taskRow(task, fresh, day = state.date) {
   const done = Boolean(task.doneOn);
   const title = escapeHTML(task.title);
@@ -1414,8 +1452,14 @@ function renderTasks(direction = 0, fresh = null, scope = root, date = state.dat
   if (!waiting) setBlank(blank);
   const { open, done } = tasksOn(date);
 
-  // A past day takes no new tasks - they would move to today at once. It keeps what was done on it.
-  block.hidden = past && (skeleton || !done.length);
+  // A past day takes no new tasks - they would move to today at once. It keeps what was done on it (in either tab).
+  const doneAnywhere = TASK_TABS.some((t) => tasksOn(date, t.key).done.length);
+  block.hidden = past && (skeleton || !doneAnywhere);
+  renderTaskTabs(block, date, skeleton);
+  const empty = block.querySelector('.tasks-empty');
+  const none = !skeleton && !blank && !open.length && !done.length;
+  empty.hidden = !none;
+  empty.textContent = none ? TASK_TABS.find((t) => t.key === state.taskTab).empty : '';
   block.querySelector('.quick-add').hidden = past;
   renderTaskCount(scope, date, waiting);
 
@@ -2005,6 +2049,12 @@ function createTaskSheet() {
           ${PRIORITY_NAMES.map((name, i) => `<button type="button" class="kp" data-priority="${i}" aria-pressed="false"><span class="pick-check">${icon.check}</span>${name}</button>`).join('')}
         </div>
       </div>
+      <div class="field">
+        <span class="field-label" id="task-category-label">קטגוריה</span>
+        <div class="kind-picks" role="group" aria-labelledby="task-category-label">
+          ${TASK_TABS.map((t) => `<button type="button" class="kp" data-category="${t.key}" aria-pressed="false"><span class="pick-check">${icon.check}</span>${t.name}</button>`).join('')}
+        </div>
+      </div>
       <div class="sheet-footer">
         <p class="form-error" role="alert"></p>
         <div class="sheet-actions" data-main-actions>
@@ -2020,6 +2070,10 @@ function createTaskSheet() {
   document.body.append(el);
 
   const $ = (selector) => el.querySelector(selector);
+  const categoryPicks = [...el.querySelectorAll('[data-category]')];
+  const pickedCategory = () => categoryPicks.find((b) => b.getAttribute('aria-pressed') === 'true')?.dataset.category ?? 'general';
+  const setCategory = (key) => categoryPicks.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.category === key)));
+  categoryPicks.forEach((b) => b.addEventListener('click', () => setCategory(b.dataset.category))); // always exactly one
   const titleInput = $('#task-title');
   const dateInput = $('#task-date');
   const titleError = $('#task-title-error');
@@ -2067,6 +2121,8 @@ function createTaskSheet() {
       return;
     }
     const fields = { title, priority: picked() };
+    const category = pickedCategory();
+    if (category !== categoryOf(editing)) fields.category = category; // sent only when it changed
     // A done task stays where it was done; only an open one moves, and only to today or later.
     if (!editing.doneOn && dateInput.value !== shownDate) {
       if (!dateInput.value) return fail('חסר יום');
@@ -2078,9 +2134,11 @@ function createTaskSheet() {
       const saved = await taskWrite(() => data.updateTask(id, fields));
       putTask(saved);
       close();
-      const moved = shownOn(saved) !== state.date;
-      showToast(moved ? `המשימה הועברה ל${formatLong(shownOn(saved))}` : 'המשימה נשמרה');
-      if (moved) showTaskDeleted(id); // it leaves this day
+      const movedDay = shownOn(saved) !== state.date;
+      const movedTab = categoryOf(saved) !== state.taskTab;
+      const tabName = TASK_TABS.find((t) => t.key === categoryOf(saved)).name;
+      showToast(movedDay ? `המשימה הועברה ל${formatLong(shownOn(saved))}` : movedTab ? `המשימה הועברה ללשונית ${tabName}` : 'המשימה נשמרה');
+      if (movedDay || movedTab) showTaskDeleted(id); // it leaves this day or this tab
       else renderTasks(0, id);
     }, 'השמירה נכשלה, נסה שוב');
   });
@@ -2116,6 +2174,7 @@ function createTaskSheet() {
     note.hidden = !task.doneOn;
     if (task.doneOn) note.innerHTML = `${icon.check}בוצעה ב-${formatDate(task.doneOn).slice(0, 5)}`;
     setPicked(task.priority);
+    setCategory(categoryOf(task));
     setTitleError('');
     formError.textContent = '';
     hideChoice();

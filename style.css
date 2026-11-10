@@ -675,6 +675,53 @@ button.row:focus-visible { outline-offset: -2px; }
 
 .task-list { margin: 0; padding: 4px 0 0; list-style: none; }
 .task-list:empty { display: none; }
+
+/* The two tabs (general / study). Told apart without color: the one on screen is filled solid and bold with a check,
+   the other is an empty outline; both carry their name, and a number of open tasks. */
+.task-tabs { display: flex; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.task-tab {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--cream);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color .18s, border-color .18s, color .18s, transform .14s var(--ease-out);
+}
+.task-tab:active { transform: scale(.97); }
+.task-tab[aria-pressed="true"] { border-color: var(--teal-strong); background: var(--teal); color: var(--paper); font-weight: 700; }
+.task-tab[aria-pressed="true"] .tab-name::before { content: "\2713\00a0"; }
+.tab-n {
+  min-width: 22px;
+  padding: 1px 7px;
+  border: 1.5px solid currentColor;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+}
+.tab-n[hidden] { display: none; }
+@media (hover: hover) {
+  .task-tab[aria-pressed="false"]:hover { background: var(--paper-hover); }
+}
+.task-tab:focus-visible { outline: 2px solid var(--teal-strong); outline-offset: 2px; }
+
+.tasks-empty { margin: 0; padding: 18px 20px; color: var(--ink-2); font-size: 15px; text-align: center; }
+.tasks-empty[hidden] { display: none; }
+.tasks-empty:not([hidden]) ~ .quick-add { border-top: 1px solid var(--line); }
+
+/* Moving between tabs: the list fades in (the same "fade" as the day reveal). */
+.tab-fade { animation: fade .2s ease-out both; }
 .task-list > li + li { border-top: 1px solid var(--line); }
 
 .task { display: flex; align-items: stretch; }
@@ -1578,6 +1625,7 @@ html[data-boot="day-past"] .boot-day .tasks-block { display: none; } /* a past d
 .boot .day-date .skel { width: 96px; height: 12px; }
 .boot .section-label { display: flex; align-items: center; height: 21px; }
 .boot .section-label .skel { width: 56px; height: 11px; }
+.boot-tabs { height: 65px; border-bottom: 1px solid var(--line); } /* the tab bar of the real day: 44px buttons + 10px padding twice + 1px line */
 .boot .qa-line .skel { width: 36%; height: 14px; margin-inline-start: 56px; }
 
 @media (min-width: 768px) {
